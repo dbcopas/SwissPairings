@@ -124,10 +124,10 @@ class State:
                     for player in self.players:
                         opp_num = int(ba_string[start_index:end_index], 2)
                         start_index = start_index + width
-                        end_index = end_index + 2
+                        end_index += 2
                         games_won = int(ba_string[start_index:end_index], 2)
                         player.add_result(opp_num, games_won)
-                        start_index = start_index + 2
+                        start_index += 2
                         end_index = start_index + width
                 for player in self.players:
                     player.calculate_points(self)
@@ -137,23 +137,58 @@ class State:
                 if self.played_rounds <= self.number_of_rounds:
                     self.ordered_pairing_list = []
                     
-                    player_to_place = 0
                     next_target = 1
+
                     for player in ranked_player_list:
                         player_matched = False
+
                         if player.player_number in self.ordered_pairing_list:
-                            player_to_place += 1
-                            next_target += 1
                             continue
+
                         while not player_matched:
-                            if ranked_player_list[next_target].player_number in self.ordered_pairing_list:
+
+                            # in case there are no possible opponents left, switch the next player not already in the rankings
+                            # (which can't match with this one) with the closest higher player already in the rankings that can
+                            # match with this one
+                            if next_target >= self.number_of_players:
+                                # get our index
+                                this_player_index = next((i for i, item in enumerate(ranked_player_list) if item.player_number == player.player_number), -1)
+                                # the next lower one not in the list will get swapped above us
+                                possible_index = this_player_index + 1
+                                no_match_yet = True
+                                while no_match_yet:
+                                    if ranked_player_list[possible_index].player_number in self.ordered_pairing_list:
+                                        possible_index += 1
+                                    else:
+                                        break
+                                target_to_switch = ranked_player_list[possible_index].player_number
+
+                                # find the closest above us that would match with us
+                                no_match_yet = True
+                                possible_index = len(self.ordered_pairing_list) - 1
+                                while no_match_yet:
+                                    no_match_yet = player.player_has_played_target(self.ordered_pairing_list[possible_index])
+                                    if no_match_yet:
+                                        possible_index -= 1
+                                    else:
+                                        break
+                                existing_player_to_switch = self.ordered_pairing_list[possible_index]
+
+                                # swap them
+                                for n, i in enumerate(self.ordered_pairing_list):
+                                    if i == existing_player_to_switch:
+                                        self.ordered_pairing_list[n] = target_to_switch
+
+                                next_target = 1
+
+                            if ranked_player_list[next_target].player_number in self.ordered_pairing_list \
+                                or ranked_player_list[next_target].player_number == player.player_number:
                                 next_target += 1
                                 continue
                             if not player.player_has_played_target(ranked_player_list[next_target].player_number):
                                 self.ordered_pairing_list.append(player.player_number)
                                 self.ordered_pairing_list.append(ranked_player_list[next_target].player_number)
-                                player_to_place += 1
-                                next_target = player_to_place + 1
+                                next_target = 1
                                 player_matched = True
                             else:
                                 next_target += 1
@@ -179,7 +214,7 @@ class State:
         rnum = int(form['rnum'])
 
         if pnum % 2 == 1:
-            pnum = pnum + 1
+            pnum += 1
             self.bye_player = True
 
         header = get_header(pnum, rnum, 0, self.bye_player)  
@@ -280,7 +315,7 @@ def get_final_results(state: State) -> str:
     while (start + 1) <= pnum:
         form_string += f"""Place {start + 1}: Player {state.ordered_pairing_list[start]}<br>    
         <br><br>"""
-        start = start + 1
+        start += 1
     form_string += """<br><br>
         </body>
         </html>"""
@@ -309,7 +344,7 @@ def get_pairing_controls(state: State) -> str:
         <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="1_1">
         Player {state.ordered_pairing_list[start]}: 1-1&nbsp
         <br><br>"""
-        start = start + 2
+        start += 2
     form_string += """<br><br>
         <button type="submit">Submit</button>
         </form>
@@ -331,14 +366,14 @@ def pad_bits(header: list) -> list:
     length = len(header)            
     fill = length % 6
     if fill != 0:
-        for i in range(6 - fill):
+        for _ in range(6 - fill):
             header.append(0)
     return header
 
 def get_player_width(pnum: int) -> int:
     width = 1
     while (2**width < pnum):
-        width = width + 1
+        width += 1
     return width
 
 def decode_header(ba_string: str):
