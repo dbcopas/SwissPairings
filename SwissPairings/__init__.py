@@ -88,23 +88,34 @@ symbols = {
                 '@' : bitarray.bitarray('111111'),
             }
 
-def get_pairing_controls(player_num_ary: list, state: str) -> str:
+class Players:
+    def __init__(self, pnum: int):
+         
+
+def get_pairing_controls(player_num_ary: list, state: str, current_round: int) -> str:
     form_string = f"""<!DOCTYPE html>
     <html>
     <body>
-    <h2>{state}</h2>
-    <form action="http://localhost:7071/SwissPairings" method="POST">
-        Number of Players<br>
-        <input type="text" name="pnum">
-        <br>
-        Number of Rounds<br>
-        <input type="text" name="rnum">
-        <br>
-        <br><br>
+    <h2>Round {current_round + 1} : {state}</h2>
+    <form action="http://localhost:7071/SwissPairings/{state}" method="POST">
+        <br>"""
+
+    pnum = len(player_num_ary)
+    start = 0
+    while (start + 1) <= pnum:
+        form_string += f"""Player {player_num_ary[start]} vs Player {player_num_ary[start + 1]}<br>
+        <input type="radio" name="{player_num_ary[start]}_{player_num_ary[start+1]}" value="win">
+        {player_num_ary[start]} Win&nbsp
+        <input type="radio" name="{player_num_ary[start]}_{player_num_ary[start+1]}" value="loss">
+        {player_num_ary[start]} Loss&nbsp
+        <input type="radio" name="{player_num_ary[start]}_{player_num_ary[start+1]}" value="tie">
+        Tie<br><br>"""
+        start = start + 2
+    form_string += """<br><br>
         <button type="submit">Submit</button>
-    </form>
-    </body>
-    </html>"""
+        </form>
+        </body>
+        </html>"""
     return form_string           
     
 def get_header(pnum: int, rnum: int, rcurr: int) -> list:
@@ -157,12 +168,17 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     ordered_pairing_list.append(int(player_string, 2))
                     start_index = end_index
                     end_index = start_index + width
-                pairing_form = get_pairing_controls(ordered_pairing_list, state)
-                return func.HttpResponse(body=pairing_form, mimetype="text/html")
+                pairing_form = get_pairing_controls(ordered_pairing_list, state, current_round)                
             else:
-                pass
 
-            return func.HttpResponse("form for getting results")
+                #read history
+                #calculate rankings
+                #build the ordered list that represents the pairings
+                #get the control
+
+                pass
+            return func.HttpResponse(body=pairing_form, mimetype="text/html")
+
     elif "POST" in req.method:
         if state is None:
 
