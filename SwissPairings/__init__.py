@@ -1,7 +1,7 @@
 import logging
 import random
 import bitarray
-import binascii
+from enum import Enum
 import azure.functions as func
 
 new_game_form = """<!DOCTYPE html>
@@ -88,27 +88,124 @@ symbols = {
                 '@' : bitarray.bitarray('111111'),
             }
 
-class Players:
-    def __init__(self, pnum: int):
-         
+class State:
+    number_of_players = 0
+    played_rounds = 0
+    number_of_rounds = 0
+    state_string = ""
+    ordered_pairing_list = []
+    players = []
 
-def get_pairing_controls(player_num_ary: list, state: str, current_round: int) -> str:
+    def __init__(self, state_string: str):
+
+        self.number_of_players = 0
+        self.played_rounds = 0
+        self.number_of_rounds = 0
+        self.state_string = ""
+        self.ordered_pairing_list = []
+        self.players = []
+
+        if state_string is not None:
+            ba = bitarray.bitarray()
+            ba.encode(symbols, state_string)
+            ba_string = ba.to01()
+            self.number_of_players, self.number_of_rounds, self.played_rounds = decode_header(ba_string)    
+
+        if self.played_rounds == 0:
+            self.state_string = state_string
+            width = get_player_width(self.number_of_players)
+            start_index = 10
+            end_index = start_index + width
+            for i in range(self.number_of_players):
+                player_string = ba_string[start_index:end_index]
+                self.ordered_pairing_list.append(int(player_string, 2))
+                start_index = end_index
+                end_index = start_index + width
+
+        else: # there is a history
+            self.players = Players(self.number_of_players, ba_string)
+
+    def build_first_state_string(self, form: dict):
+        # randomize the players
+        # encode the player order in a state that has
+        # 4 bits for pnum
+        # 3 bits for rounds
+        # 3 bits for current round
+        # var bits based on pnum, sequence of pairings
+        # redirect to GET with that state (and have the get with state see this and render controls)
+
+        pnum = int(form['pnum'])
+        rnum = int(form['rnum'])
+
+        if pnum % 2 == 1:
+            pnum = pnum + 1
+
+        header = get_header(pnum, rnum, 0)  
+
+        players = []
+        for i in range(pnum):
+            players.append(i)    
+        random.shuffle(players)
+        width = get_player_width(pnum)
+
+        for player in players:
+            seq_header = [int(x) for x in '{:0{size}b}'.format(player,size=width)]
+            header = header + seq_header
+
+        header = pad_bits(header)
+        ba = bitarray.bitarray(header)
+        state = ba.decode(symbols)
+        self.state_string = ''.join(state)
+    
+class Result(Enum):
+    WIN = 1
+    LOSS = 2
+    TIE = 3
+
+class Round:
+    opp_number = -1
+    result = -1
+    def __init__(self, opp_number: int, result: Result):
+        self.opp_number = opp_number
+        self.result = result
+
+class Player:
+    player_number = -1
+    rounds = []
+
+    def __init__(self, pnum:int):
+        self.player_number = pnum
+
+    def add_result(self, opp_number:int, result: Result):
+        round = Round(opp_number, Result)
+        self.rounds.append(round)
+
+class Players:
+    players = []
+
+    def __init__(self, pnum: int, state: State):
+        for i in range(pnum):
+            player = Player(i-1)
+            self.players.append(player)
+
+
+def get_pairing_controls(state: State) -> str:
     form_string = f"""<!DOCTYPE html>
     <html>
     <body>
-    <h2>Round {current_round + 1} : {state}</h2>
-    <form action="http://localhost:7071/SwissPairings/{state}" method="POST">
+    <h2>Round {state.played_rounds + 1} : {state.state_string}</h2>
+    <form action="http://localhost:7071/SwissPairings/{state.state_string}" method="POST">
         <br>"""
 
-    pnum = len(player_num_ary)
+    pnum = len(state.ordered_pairing_list)
     start = 0
     while (start + 1) <= pnum:
-        form_string += f"""Player {player_num_ary[start]} vs Player {player_num_ary[start + 1]}<br>
-        <input type="radio" name="{player_num_ary[start]}_{player_num_ary[start+1]}" value="win">
-        {player_num_ary[start]} Win&nbsp
-        <input type="radio" name="{player_num_ary[start]}_{player_num_ary[start+1]}" value="loss">
-        {player_num_ary[start]} Loss&nbsp
-        <input type="radio" name="{player_num_ary[start]}_{player_num_ary[start+1]}" value="tie">
+        form_string += f"""Player {state.ordered_pairing_list[start]} vs Player {state.ordered_pairing_list[start + 1]}<br>
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="win">
+        {state.ordered_pairing_list[start]} Win&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="loss">
+        {state.ordered_pairing_list[start]} Loss&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="tie">
         Tie<br><br>"""
         start = start + 2
     form_string += """<br><br>
@@ -141,34 +238,27 @@ def get_player_width(pnum: int) -> int:
         width = width + 1
     return width
 
+def decode_header(ba_string: str):
+    
+    number_of_players = int(ba_string[:4], 2)
+    number_of_rounds = int(ba_string[4:7] ,2)
+    played_rounds = int(ba_string[7:10] ,2)
+    return number_of_players, number_of_rounds, played_rounds
+
 def main(req: func.HttpRequest) -> func.HttpResponse:
 
     logging.info('Python HTTP trigger function processed a request.')
 
-    state = req.route_params.get('state')
+    state_string = req.route_params.get('state')
 
     if "GET" in req.method:
-        if state is None:
+        if state_string is None:
             return func.HttpResponse(body=new_game_form, mimetype="text/html")
         else:
-            ba = bitarray.bitarray()
-            ba.encode(symbols, state)
-            ba_string = ba.to01()
-            number_of_players = int(ba_string[:4], 2)
-            number_of_rounds = int(ba_string[4:7] ,2)
-            current_round = int(ba_string[7:10] ,2)
+            current_state = State(state_string)
 
-            if current_round == 0:
-                width = get_player_width(number_of_players)
-                start_index = 10
-                end_index = start_index + width
-                ordered_pairing_list = []
-                for i in range(number_of_players):
-                    player_string = ba_string[start_index:end_index]
-                    ordered_pairing_list.append(int(player_string, 2))
-                    start_index = end_index
-                    end_index = start_index + width
-                pairing_form = get_pairing_controls(ordered_pairing_list, state, current_round)                
+            if current_state.played_rounds == 0:
+                pairing_form = get_pairing_controls(current_state)                
             else:
 
                 #read history
@@ -180,43 +270,17 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             return func.HttpResponse(body=pairing_form, mimetype="text/html")
 
     elif "POST" in req.method:
-        if state is None:
-
-            # randomize the players
-            # encode the player order in a state that has
-            # 4 bits for pnum
-            # 3 bits for rounds
-            # 3 bits for current round
-            # var bits based on pnum, sequence of pairings
-            # redirect to GET with that state (and have the get with state see this and render controls)
-
-            pnum = int(req.form['pnum'])
-            rnum = int(req.form['rnum'])
-
-            if pnum % 2 == 1:
-                pnum = pnum + 1
-
-            header = get_header(pnum, rnum, 0)  
-
-            players = []
-            for i in range(pnum):
-                players.append(i)    
-            random.shuffle(players)
-            width = get_player_width(pnum)
-
-            for player in players:
-                seq_header = [int(x) for x in '{:0{size}b}'.format(player,size=width)]
-                header = header + seq_header
-
-            header = pad_bits(header)
-            ba = bitarray.bitarray(header)
-            state = ba.decode(symbols)
-            state_string = ''.join(state)
-            headers = {"Location":  f"http://localhost:7071/SwissPairings/{state_string}"}
+        if state_string is None:
+            current_state = State(None)
+            current_state.build_first_state_string(req.form)
+            headers = {"Location":  f"http://localhost:7071/SwissPairings/{current_state.state_string}"}
             return func.HttpResponse(status_code=302, headers=headers)
 
         else:
 
+            current_state = State(state_string)
+
+            players = current_state.players
             # decode the state in to 
             # 4 bits for pnum
             # 3 bits for rounds
@@ -228,25 +292,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
             # parse the form values for the results from that round
             # calculate the rankings 
+            # build new state and redirect to a GET with the state for the next round/results
 
             return func.HttpResponse("expect the results of a round")
     else:
         raise ValueError(f"Unexpected http method {req.method}")
 
-
-    name = req.params.get('name')
-    if not name:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            pass
-        else:
-            name = req_body.get('name')
-
-    if name:
-        return func.HttpResponse(f"Hello {name}!")
-    else:
-        return func.HttpResponse(
-             "Please pass a name on the query string or in the request body",
-             status_code=400
-        )
