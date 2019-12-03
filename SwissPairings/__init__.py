@@ -2,7 +2,6 @@ import logging
 import random
 import bitarray
 from enum import Enum
-import math
 import azure.functions as func
 
 new_game_form = """<!DOCTYPE html>
