@@ -2,6 +2,7 @@ import logging
 import random
 import bitarray
 from enum import Enum
+import math
 import azure.functions as func
 
 new_game_form = """<!DOCTYPE html>
@@ -134,7 +135,7 @@ class State:
 
                 ranked_player_list = self.get_ranked_players()
 
-                if self.played_rounds <= self.number_of_rounds:
+                if self.played_rounds < self.number_of_rounds:
                     self.ordered_pairing_list = []
                     
                     next_target = 1
@@ -193,7 +194,9 @@ class State:
                             else:
                                 next_target += 1
                 else:
-                    self.ordered_pairing_list = ranked_player_list
+                    for player in ranked_player_list:
+                        self.ordered_pairing_list.append(player.player_number)
+
 
         if self.played_rounds == 0: # create the ordered pairing list for the first round
             width = get_player_width(self.number_of_players)
@@ -206,7 +209,7 @@ class State:
                 end_index = start_index + width
 
     def get_ranked_players(self) -> list:
-        return sorted(self.players, key = lambda x: x.points, reverse=True)
+        return sorted(self.players, key = lambda x: (x.points, x.OMW), reverse=True)
 
     def build_first_state_string(self, form: dict):
 
@@ -275,24 +278,64 @@ class Player:
     player_number = -1
     rounds = []
     points = 0
+    OMW = 0
 
     def __init__(self, pnum:int):
         self.points = 0
         self.rounds = []
         self.player_number = pnum
+        self.OMW = 0
 
     def add_result(self, opp_number:int, games_won: int):
         round = Round(opp_number, games_won)
         self.rounds.append(round)
 
     def calculate_points(self, state: State):
+
+        if state.bye_player and (self.player_number + 1) == state.number_of_players:
+            self.OMW = 0.0
+            return
+
         round_num = 0
         for round in self.rounds:
-            if round.games_won >= 2:
+            if round.games_won > state.players[round.opp_number].rounds[round_num].games_won:
                 self.points += 3
             if round.games_won == 1 and state.players[round.opp_number].rounds[round_num].games_won == 1:
                 self.points += 1
             round_num += 1
+
+        # calculate OMW percentage
+        omwp = 0
+        round_list = []
+        
+        for round in self.rounds:
+            opp_num = round.opp_number
+            opp_player = state.players[opp_num]   
+            opp_match_wins = 0
+            opp_matches = 0            
+            round_num = 0
+
+            for opp_round in opp_player.rounds:                
+                if state.bye_player and (opp_num + 1) == state.number_of_players:
+                    continue # byes dont count
+                else:
+                    opp_matches += 1
+                    if opp_round.games_won > state.players[opp_round.opp_number].rounds[round_num].games_won:
+                        opp_match_wins += 1
+                round_num += 1
+            
+            if opp_matches == 0:
+                round_list.append(0)
+
+            else:
+                oppwp = float(float(opp_match_wins)/(float(opp_matches)))
+                if oppwp < .33:
+                    oppwp = .33
+                round_list.append(oppwp)
+        
+        omwp = sum(round_list)/len(round_list)
+        self.OMW = omwp
+
 
     def player_has_played_target(self, opp_num: int) -> bool:
         has_played = False
