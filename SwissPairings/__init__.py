@@ -160,10 +160,6 @@ class State:
                 else:
                     self.ordered_pairing_list = ranked_player_list
 
-
-                # build history
-                # calculate rankings in the form of the ordered pairing list
-
         if self.played_rounds == 0: # create the ordered pairing list for the first round
             width = get_player_width(self.number_of_players)
             start_index = 11
