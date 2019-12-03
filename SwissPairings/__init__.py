@@ -82,9 +82,9 @@ symbols = {
                 'Y' : bitarray.bitarray('111001'),
                 'Z' : bitarray.bitarray('111010'),
                 '*' : bitarray.bitarray('111011'),
-                '+' : bitarray.bitarray('111100'),
+                '(' : bitarray.bitarray('111100'),
                 '!' : bitarray.bitarray('111101'),
-                '#' : bitarray.bitarray('111110'),
+                ')' : bitarray.bitarray('111110'),
                 '@' : bitarray.bitarray('111111'),
             }
 
@@ -109,10 +109,17 @@ class State:
             ba = bitarray.bitarray()
             ba.encode(symbols, state_string)
             ba_string = ba.to01()
-            self.number_of_players, self.number_of_rounds, self.played_rounds = decode_header(ba_string)    
-
-        if self.played_rounds == 0:
+            self.number_of_players, self.number_of_rounds, self.played_rounds = decode_header(ba_string) 
             self.state_string = state_string
+            for i in range(self.number_of_players):
+                player = Player(i)
+                self.players.append(player)   
+            if self.played_rounds > 0:
+                pass
+                # build history
+                # calculate rankings in the form of the ordered pairing list
+
+        if self.played_rounds == 0: # create the ordered pairing list for the first round
             width = get_player_width(self.number_of_players)
             start_index = 10
             end_index = start_index + width
@@ -122,17 +129,8 @@ class State:
                 start_index = end_index
                 end_index = start_index + width
 
-        else: # there is a history
-            self.players = Players(self.number_of_players, ba_string)
 
     def build_first_state_string(self, form: dict):
-        # randomize the players
-        # encode the player order in a state that has
-        # 4 bits for pnum
-        # 3 bits for rounds
-        # 3 bits for current round
-        # var bits based on pnum, sequence of pairings
-        # redirect to GET with that state (and have the get with state see this and render controls)
 
         pnum = int(form['pnum'])
         rnum = int(form['rnum'])
@@ -142,20 +140,59 @@ class State:
 
         header = get_header(pnum, rnum, 0)  
 
-        players = []
+        player_numbers = []
         for i in range(pnum):
-            players.append(i)    
-        random.shuffle(players)
+            player_numbers.append(i)    
+        random.shuffle(player_numbers)
         width = get_player_width(pnum)
 
-        for player in players:
-            seq_header = [int(x) for x in '{:0{size}b}'.format(player,size=width)]
+        for player_number in player_numbers:
+            seq_header = [int(x) for x in '{:0{size}b}'.format(player_number,size=width)]
             header = header + seq_header
 
         header = pad_bits(header)
         ba = bitarray.bitarray(header)
         state = ba.decode(symbols)
         self.state_string = ''.join(state)
+
+    def build_new_state_string(self):
+        
+        self.played_rounds = self.played_rounds + 1
+        header = get_header(self.number_of_players, self.number_of_rounds, self.played_rounds)
+        width = get_player_width(self.number_of_players)
+
+        for round_number in range(self.played_rounds):
+            for player in self.players:
+                opp_number_string = [int(x) for x in '{:0{size}b}'.format(player.rounds[round_number].opp_number,size=width)]
+                header = header + opp_number_string
+                if player.rounds[round_number].result == Result.WIN:
+                    result_bits = [0,1]
+                elif player.rounds[round_number].result == Result.LOSS:
+                    result_bits = [0,0]
+                else:
+                    result_bits = [1,1]
+                header = header + result_bits
+
+        header = pad_bits(header)
+        ba = bitarray.bitarray(header)
+        state = ba.decode(symbols)
+        self.state_string = ''.join(state)
+
+    def update_history(self, form: dict):
+
+        for k, v in form.items():
+            player_nums = k.split("_")
+            player_1_num = int(player_nums[0])
+            player_2_num = int(player_nums[1])
+            player1 = self.players[player_1_num]
+            player2 = self.players[player_2_num]
+            player1_result = Result[v]
+            player1.add_result(player_2_num, player1_result)
+            if v == "TIE":
+                player2_result = Result.TIE
+            else:
+                player2_result = Result.LOSS if v == "WIN" else Result.WIN
+            player2.add_result(player_1_num, player2_result)
     
 class Result(Enum):
     WIN = 1
@@ -174,20 +211,16 @@ class Player:
     rounds = []
 
     def __init__(self, pnum:int):
+        self.rounds = []
         self.player_number = pnum
 
     def add_result(self, opp_number:int, result: Result):
-        round = Round(opp_number, Result)
+        round = Round(opp_number, result)
         self.rounds.append(round)
 
-class Players:
-    players = []
-
-    def __init__(self, pnum: int, state: State):
-        for i in range(pnum):
-            player = Player(i-1)
-            self.players.append(player)
-
+def get_final_results(state: State) -> str:
+    # just list the state and consume the ordered pairing list as the rank list
+    return "you win"
 
 def get_pairing_controls(state: State) -> str:
     form_string = f"""<!DOCTYPE html>
@@ -201,11 +234,11 @@ def get_pairing_controls(state: State) -> str:
     start = 0
     while (start + 1) <= pnum:
         form_string += f"""Player {state.ordered_pairing_list[start]} vs Player {state.ordered_pairing_list[start + 1]}<br>
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="win">
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="WIN">
         {state.ordered_pairing_list[start]} Win&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="loss">
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="LOSS">
         {state.ordered_pairing_list[start]} Loss&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="tie">
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="TIE">
         Tie<br><br>"""
         start = start + 2
     form_string += """<br><br>
@@ -219,7 +252,7 @@ def get_header(pnum: int, rnum: int, rcurr: int) -> list:
 
     pnum_header = [int(x) for x in '{:0{size}b}'.format(pnum,size=4)]
     rnum_header = [int(x) for x in '{:0{size}b}'.format(rnum,size=3)]
-    rcurr_header = [int(x) for x in '{:0{size}b}'.format(0,size=3)]
+    rcurr_header = [int(x) for x in '{:0{size}b}'.format(rcurr,size=3)]
     bit_list = pnum_header + rnum_header + rcurr_header
 
     return bit_list
@@ -257,16 +290,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         else:
             current_state = State(state_string)
 
-            if current_state.played_rounds == 0:
-                pairing_form = get_pairing_controls(current_state)                
+            if current_state.played_rounds < current_state.number_of_rounds:
+                pairing_form = get_pairing_controls(current_state)
             else:
+                pairing_form = get_final_results(current_state)
 
-                #read history
-                #calculate rankings
-                #build the ordered list that represents the pairings
-                #get the control
-
-                pass
             return func.HttpResponse(body=pairing_form, mimetype="text/html")
 
     elif "POST" in req.method:
@@ -277,24 +305,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             return func.HttpResponse(status_code=302, headers=headers)
 
         else:
-
             current_state = State(state_string)
+            current_state.update_history(req.form)
+            current_state.build_new_state_string()
+            headers = {"Location":  f"http://localhost:7071/SwissPairings/{current_state.state_string}"}
+            return func.HttpResponse(status_code=302, headers=headers)
 
-            players = current_state.players
-            # decode the state in to 
-            # 4 bits for pnum
-            # 3 bits for rounds
-            # 3 bits for current round
-            # var bits based on pnum, sequential 0-n list of results from previous rounds
-            #  where the first bits are the opponent and the next 2 are the results 00 loss 01 win 1x tie
-
-            # this also happens on get for result controls
-
-            # parse the form values for the results from that round
-            # calculate the rankings 
-            # build new state and redirect to a GET with the state for the next round/results
-
-            return func.HttpResponse("expect the results of a round")
     else:
         raise ValueError(f"Unexpected http method {req.method}")
 
