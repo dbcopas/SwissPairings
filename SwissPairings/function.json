@@ -9,7 +9,8 @@
       "methods": [
         "get",
         "post"
-      ]
+      ],
+      "route": "SwissPairings/{state?}"
     },
     {
       "type": "http",
