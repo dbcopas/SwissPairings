@@ -95,6 +95,7 @@ class State:
     state_string = ""
     ordered_pairing_list = []
     players = []
+    bye_player = False
 
     def __init__(self, state_string: str):
 
@@ -104,24 +105,68 @@ class State:
         self.state_string = ""
         self.ordered_pairing_list = []
         self.players = []
+        self.bye_player = False
 
         if state_string is not None:
             ba = bitarray.bitarray()
             ba.encode(symbols, state_string)
             ba_string = ba.to01()
-            self.number_of_players, self.number_of_rounds, self.played_rounds = decode_header(ba_string) 
+            self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player = decode_header(ba_string) 
             self.state_string = state_string
             for i in range(self.number_of_players):
                 player = Player(i)
                 self.players.append(player)   
             if self.played_rounds > 0:
-                pass
+                width = get_player_width(self.number_of_players)
+                start_index = 11
+                end_index = start_index + width
+                for _ in range(self.played_rounds):
+                    for player in self.players:
+                        opp_num = int(ba_string[start_index:end_index], 2)
+                        start_index = start_index + width
+                        end_index = end_index + 2
+                        games_won = int(ba_string[start_index:end_index], 2)
+                        player.add_result(opp_num, games_won)
+                        start_index = start_index + 2
+                        end_index = start_index + width
+                for player in self.players:
+                    player.calculate_points(self)
+
+                ranked_player_list = self.get_ranked_players()
+
+                if self.played_rounds <= self.number_of_rounds:
+                    self.ordered_pairing_list = []
+                    
+                    player_to_place = 0
+                    next_target = 1
+                    for player in ranked_player_list:
+                        player_matched = False
+                        if player.player_number in self.ordered_pairing_list:
+                            player_to_place += 1
+                            next_target += 1
+                            continue
+                        while not player_matched:
+                            if ranked_player_list[next_target].player_number in self.ordered_pairing_list:
+                                next_target += 1
+                                continue
+                            if not player.player_has_played_target(ranked_player_list[next_target].player_number):
+                                self.ordered_pairing_list.append(player.player_number)
+                                self.ordered_pairing_list.append(ranked_player_list[next_target].player_number)
+                                player_to_place += 1
+                                next_target = player_to_place + 1
+                                player_matched = True
+                            else:
+                                next_target += 1
+                else:
+                    self.ordered_pairing_list = ranked_player_list
+
+
                 # build history
                 # calculate rankings in the form of the ordered pairing list
 
         if self.played_rounds == 0: # create the ordered pairing list for the first round
             width = get_player_width(self.number_of_players)
-            start_index = 10
+            start_index = 11
             end_index = start_index + width
             for i in range(self.number_of_players):
                 player_string = ba_string[start_index:end_index]
@@ -129,6 +174,8 @@ class State:
                 start_index = end_index
                 end_index = start_index + width
 
+    def get_ranked_players(self) -> list:
+        return sorted(self.players, key = lambda x: x.points, reverse=True)
 
     def build_first_state_string(self, form: dict):
 
@@ -137,8 +184,9 @@ class State:
 
         if pnum % 2 == 1:
             pnum = pnum + 1
+            self.bye_player = True
 
-        header = get_header(pnum, rnum, 0)  
+        header = get_header(pnum, rnum, 0, self.bye_player)  
 
         player_numbers = []
         for i in range(pnum):
@@ -158,20 +206,15 @@ class State:
     def build_new_state_string(self):
         
         self.played_rounds = self.played_rounds + 1
-        header = get_header(self.number_of_players, self.number_of_rounds, self.played_rounds)
+        header = get_header(self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player)
         width = get_player_width(self.number_of_players)
 
         for round_number in range(self.played_rounds):
             for player in self.players:
                 opp_number_string = [int(x) for x in '{:0{size}b}'.format(player.rounds[round_number].opp_number,size=width)]
                 header = header + opp_number_string
-                if player.rounds[round_number].result == Result.WIN:
-                    result_bits = [0,1]
-                elif player.rounds[round_number].result == Result.LOSS:
-                    result_bits = [0,0]
-                else:
-                    result_bits = [1,1]
-                header = header + result_bits
+                games_won_string = [int(x) for x in '{:0{size}b}'.format(player.rounds[round_number].games_won,size=2)]
+                header = header + games_won_string
 
         header = pad_bits(header)
         ba = bitarray.bitarray(header)
@@ -186,41 +229,66 @@ class State:
             player_2_num = int(player_nums[1])
             player1 = self.players[player_1_num]
             player2 = self.players[player_2_num]
-            player1_result = Result[v]
-            player1.add_result(player_2_num, player1_result)
-            if v == "TIE":
-                player2_result = Result.TIE
-            else:
-                player2_result = Result.LOSS if v == "WIN" else Result.WIN
-            player2.add_result(player_1_num, player2_result)
+            games_won_nums = v.split("_")
+            player1.add_result(player_2_num, int(games_won_nums[0]))
+            player2.add_result(player_1_num, int(games_won_nums[1]))
     
-class Result(Enum):
-    WIN = 1
-    LOSS = 2
-    TIE = 3
-
 class Round:
     opp_number = -1
-    result = -1
-    def __init__(self, opp_number: int, result: Result):
+    games_won = -1
+    def __init__(self, opp_number: int, games_won: int):
         self.opp_number = opp_number
-        self.result = result
+        self.games_won = games_won
 
 class Player:
     player_number = -1
     rounds = []
+    points = 0
 
     def __init__(self, pnum:int):
+        self.points = 0
         self.rounds = []
         self.player_number = pnum
 
-    def add_result(self, opp_number:int, result: Result):
-        round = Round(opp_number, result)
+    def add_result(self, opp_number:int, games_won: int):
+        round = Round(opp_number, games_won)
         self.rounds.append(round)
 
+    def calculate_points(self, state: State):
+        round_num = 0
+        for round in self.rounds:
+            if round.games_won >= 2:
+                self.points += 3
+            if round.games_won == 1 and state.players[round.opp_number].rounds[round_num].games_won == 1:
+                self.points += 1
+            round_num += 1
+
+    def player_has_played_target(self, opp_num: int) -> bool:
+        has_played = False
+        for round in self.rounds:
+            if round.opp_number == opp_num:
+                has_played = True
+                break
+        return has_played
+
+
 def get_final_results(state: State) -> str:
-    # just list the state and consume the ordered pairing list as the rank list
-    return "you win"
+    form_string = f"""<!DOCTYPE html>
+    <html>
+    <body>
+    <h2>FINAL RESULTS</h2>
+        <br>"""
+
+    pnum = len(state.ordered_pairing_list)
+    start = 0
+    while (start + 1) <= pnum:
+        form_string += f"""Place {start + 1}: Player {state.ordered_pairing_list[start]}<br>    
+        <br><br>"""
+        start = start + 1
+    form_string += """<br><br>
+        </body>
+        </html>"""
+    return form_string   
 
 def get_pairing_controls(state: State) -> str:
     form_string = f"""<!DOCTYPE html>
@@ -234,12 +302,17 @@ def get_pairing_controls(state: State) -> str:
     start = 0
     while (start + 1) <= pnum:
         form_string += f"""Player {state.ordered_pairing_list[start]} vs Player {state.ordered_pairing_list[start + 1]}<br>
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="WIN">
-        {state.ordered_pairing_list[start]} Win&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="LOSS">
-        {state.ordered_pairing_list[start]} Loss&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="TIE">
-        Tie<br><br>"""
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="3_0">
+        Player {state.ordered_pairing_list[start]}: 3-0&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="2_1">
+        Player {state.ordered_pairing_list[start]}: 2-1&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="1_2">
+        Player {state.ordered_pairing_list[start]}: 1-2&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="0_3">
+        Player {state.ordered_pairing_list[start]}: 0-3&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="1_1">
+        Player {state.ordered_pairing_list[start]}: 1-1&nbsp
+        <br><br>"""
         start = start + 2
     form_string += """<br><br>
         <button type="submit">Submit</button>
@@ -248,12 +321,13 @@ def get_pairing_controls(state: State) -> str:
         </html>"""
     return form_string           
     
-def get_header(pnum: int, rnum: int, rcurr: int) -> list:
+def get_header(pnum: int, rnum: int, rcurr: int, bye_player: bool) -> list:
 
     pnum_header = [int(x) for x in '{:0{size}b}'.format(pnum,size=4)]
     rnum_header = [int(x) for x in '{:0{size}b}'.format(rnum,size=3)]
     rcurr_header = [int(x) for x in '{:0{size}b}'.format(rcurr,size=3)]
-    bit_list = pnum_header + rnum_header + rcurr_header
+    bye_bit = [1] if bye_player else [0]
+    bit_list = pnum_header + rnum_header + rcurr_header + bye_bit
 
     return bit_list
 
@@ -276,7 +350,8 @@ def decode_header(ba_string: str):
     number_of_players = int(ba_string[:4], 2)
     number_of_rounds = int(ba_string[4:7] ,2)
     played_rounds = int(ba_string[7:10] ,2)
-    return number_of_players, number_of_rounds, played_rounds
+    bye_player = True if bool(int(ba_string[10:11])) else False
+    return number_of_players, number_of_rounds, played_rounds, bye_player
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
 
