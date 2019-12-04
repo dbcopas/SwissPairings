@@ -112,6 +112,7 @@ class State:
         self.players = []
         self.bye_player = False
 
+        # consume the state if it is there to be consumed
         if state_string is not None:
 
             ba = bitarray.bitarray()
@@ -127,98 +128,115 @@ class State:
             if self.played_rounds > 0:
 
                 # read the history from the state in to the player objs, calc points and get rankings
-                width = get_player_width(self.number_of_players)
-                start_index = 12
-                end_index = start_index + width
-                for _ in range(self.played_rounds):
-                    for player in self.players:
-                        opp_num = int(ba_string[start_index:end_index], 2)
-                        start_index = start_index + width
-                        end_index += 2
-                        games_won = int(ba_string[start_index:end_index], 2)
-                        player.add_result(opp_num, games_won)
-                        start_index += 2
-                        end_index = start_index + width
-                for player in self.players:
-                    player.calculate_points(self)
-                ranked_player_list = self.get_ranked_players()
+                self.populate_player_object_with_from_history_in_state(ba_string)
+                ranked_player_list = self.get_player_rankings()
 
-                # if game isn't over yet, create the next pairings
+                # if game isn't over yet, create the next pairings from the rankings (this is complicated)
                 if self.played_rounds < self.number_of_rounds:
-                    self.ordered_pairing_list = []                    
-                    next_target = 1
-                    for player in ranked_player_list:
-                        player_matched = False
-
-                        if player.player_number in self.ordered_pairing_list:
-                            continue
-
-                        while not player_matched:
-
-                            # in case there are no possible opponents left, switch the next player not already in the rankings
-                            # (which can't match with this one) with the closest higher player already in the rankings that can
-                            # match with this one
-                            if next_target >= self.number_of_players:
-                                # get our index
-                                this_player_index = next((i for i, item in enumerate(ranked_player_list) if item.player_number == player.player_number), -1)
-                                # the next lower one not in the list will get swapped above us
-                                possible_index = this_player_index + 1
-                                no_match_yet = True
-                                while no_match_yet:
-                                    if ranked_player_list[possible_index].player_number in self.ordered_pairing_list:
-                                        possible_index += 1
-                                    else:
-                                        break
-                                target_to_switch = ranked_player_list[possible_index].player_number
-
-                                # find the closest above us that would match with us
-                                no_match_yet = True
-                                possible_index = len(self.ordered_pairing_list) - 1
-                                while no_match_yet:
-                                    no_match_yet = player.player_has_played_target(self.ordered_pairing_list[possible_index])
-                                    if no_match_yet:
-                                        possible_index -= 1
-                                    else:
-                                        break
-                                existing_player_to_switch = self.ordered_pairing_list[possible_index]
-
-                                # swap them
-                                for n, i in enumerate(self.ordered_pairing_list):
-                                    if i == existing_player_to_switch:
-                                        self.ordered_pairing_list[n] = target_to_switch
-
-                                next_target = 1
-
-                            if ranked_player_list[next_target].player_number in self.ordered_pairing_list \
-                                or ranked_player_list[next_target].player_number == player.player_number:
-                                next_target += 1
-                                continue
-                            if not player.player_has_played_target(ranked_player_list[next_target].player_number):
-                                self.ordered_pairing_list.append(player.player_number)
-                                self.ordered_pairing_list.append(ranked_player_list[next_target].player_number)
-                                next_target = 1
-                                player_matched = True
-                            else:
-                                next_target += 1
+                    self.create_pairings_from_ranklist(ranked_player_list)
 
                 # the rankings are final now                
                 else:
                     for player in ranked_player_list:
                         self.ordered_pairing_list.append(player.player_number)
         
-        # if this is the first round, read the state (made in the post) into the pairing list for the view to consume
-        if self.played_rounds == 0: 
-            width = get_player_width(self.number_of_players)
-            start_index = 12
-            end_index = start_index + width
-            for i in range(self.number_of_players):
-                player_string = ba_string[start_index:end_index]
-                self.ordered_pairing_list.append(int(player_string, 2))
-                start_index = end_index
+            # if this is the first round, read the state (made in the post) into the pairing list for the view to consume
+            if self.played_rounds == 0: 
+                width = get_player_width(self.number_of_players)
+                start_index = 12
                 end_index = start_index + width
+                for i in range(self.number_of_players):
+                    player_string = ba_string[start_index:end_index]
+                    self.ordered_pairing_list.append(int(player_string, 2))
+                    start_index = end_index
+                    end_index = start_index + width
+
+    # this is the only hard part of the app -> 
+    # see https://www.channelfireball.com/all-strategy/articles/understanding-standings-part-i-tournament-structure-the-basics/
+    def create_pairings_from_ranklist(self, ranked_player_list: list):
+        self.ordered_pairing_list = []                    
+        next_target = 1
+        for player in ranked_player_list:
+            player_matched = False
+
+            # some other player put this player in the list because they paired with them
+            if player.player_number in self.ordered_pairing_list:
+                continue
+
+            while not player_matched:
+
+                # in case there are no possible opponents left, switch the next player not already in the rankings
+                # (which can't match with this one) with the closest higher player already in the rankings that can
+                # match with this one
+                if next_target >= self.number_of_players:
+                    # get our index
+                    this_player_index = next((i for i, item in enumerate(ranked_player_list) if item.player_number == player.player_number), -1)
+                    # the next lower one not in the list will get swapped above us
+                    possible_index = this_player_index + 1
+                    no_match_yet = True
+                    while no_match_yet:
+                        if ranked_player_list[possible_index].player_number in self.ordered_pairing_list:
+                            possible_index += 1
+                        else:
+                            break
+                    target_to_switch = ranked_player_list[possible_index].player_number
+
+                    # find the closest above us that would match with us
+                    no_match_yet = True
+                    possible_index = len(self.ordered_pairing_list) - 1
+                    while no_match_yet:
+                        no_match_yet = player.player_has_played_target(self.ordered_pairing_list[possible_index])
+                        if no_match_yet:
+                            possible_index -= 1
+                        else:
+                            break
+                    existing_player_to_switch = self.ordered_pairing_list[possible_index]
+
+                    # swap them
+                    for n, i in enumerate(self.ordered_pairing_list):
+                        if i == existing_player_to_switch:
+                            self.ordered_pairing_list[n] = target_to_switch
+
+                    # start looking again from the top
+                    next_target = 1
+
+                # some other player put this player in the list because they paired with them
+                # also don't try to match with ourself (in case there was a swap and we look through the list again)
+                if ranked_player_list[next_target].player_number in self.ordered_pairing_list \
+                    or ranked_player_list[next_target].player_number == player.player_number:
+                    next_target += 1
+                    continue
+
+                # if our target hasn't played us, this is our pair
+                if not player.player_has_played_target(ranked_player_list[next_target].player_number):
+                    self.ordered_pairing_list.append(player.player_number)
+                    self.ordered_pairing_list.append(ranked_player_list[next_target].player_number)
+                    next_target = 1
+                    player_matched = True
+                else:
+                    next_target += 1
+
+
+    # read the history from the state in to the player objs, calc points and get rankings
+    def populate_player_object_with_from_history_in_state(self, ba_string: str):
+        width = get_player_width(self.number_of_players)
+        start_index = 12
+        end_index = start_index + width
+        for _ in range(self.played_rounds):
+            for player in self.players:
+                opp_num = int(ba_string[start_index:end_index], 2)
+                start_index = start_index + width
+                end_index += 2
+                games_won = int(ba_string[start_index:end_index], 2)
+                player.add_result(opp_num, games_won)
+                start_index += 2
+                end_index = start_index + width
+        for player in self.players:
+            player.calculate_points(self)
+        
 
     # may need to add 2nd and 3rd tie breakers here
-    def get_ranked_players(self) -> list:
+    def get_player_rankings(self) -> list:
         return sorted(self.players, key = lambda x: (x.points, x.OMW), reverse=True)
 
     # create the random pairings (called from the post of game setup)
