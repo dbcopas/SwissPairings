@@ -132,7 +132,7 @@ class State:
             # if this is the first round, read the state (made in the post) into the pairing list for the view to consume
             if self.played_rounds == 0 and "GET" in http_method: 
                 width = get_player_width(self.number_of_players)
-                start_index = 12
+                start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1
                 end_index = start_index + width
                 for i in range(self.number_of_players):
                     player_string = ba_string[start_index:end_index]
@@ -209,7 +209,7 @@ class State:
     # read the history from the state in to the player objs, calc points and get rankings
     def populate_player_object_with_from_history_in_state(self, ba_string: str):
         width = get_player_width(self.number_of_players)
-        start_index = 12
+        start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1
         end_index = start_index + width
         for _ in range(self.played_rounds):
             for player in self.players:
@@ -231,20 +231,20 @@ class State:
     # create the random pairings (called from the post of game setup)
     def build_first_state_string(self, form: dict):
 
-        pnum = int(form['pnum'])
-        rnum = int(form['rnum'])
+        number_of_players = int(form['pnum']) # 1 indexed
+        number_of_rounds = int(form['rnum']) # 1 indexed
 
-        if pnum % 2 == 1:
-            pnum += 1
+        if number_of_players % 2 == 1:
+            number_of_players += 1
             self.bye_player = True
 
-        header = get_header(pnum, rnum, 0, self.bye_player)  
+        header = get_header(number_of_players, number_of_rounds, 0, self.bye_player)  
 
         player_numbers = []
-        for i in range(pnum):
+        for i in range(number_of_players):
             player_numbers.append(i)    
         random.shuffle(player_numbers)
-        width = get_player_width(pnum)
+        width = get_player_width(number_of_players)
 
         for player_number in player_numbers:
             seq_header = [int(x) for x in '{:0{size}b}'.format(player_number,size=width)]
@@ -441,9 +441,9 @@ def get_header(number_of_players: int, number_of_rounds: int, rounds_played: int
 
     number_of_players -= 1 # 0 index the number of players
 
-    number_of_players_header = [int(x) for x in '{:0{size}b}'.format(number_of_players,size=5)]
-    number_of_rounds_header = [int(x) for x in '{:0{size}b}'.format(number_of_rounds,size=3)]
-    rounds_played_header = [int(x) for x in '{:0{size}b}'.format(rounds_played,size=3)]
+    number_of_players_header = [int(x) for x in '{:0{size}b}'.format(number_of_players,size=PLAYER_NUMBER_BITS)]
+    number_of_rounds_header = [int(x) for x in '{:0{size}b}'.format(number_of_rounds,size=ROUND_NUMBER_BITS)]
+    rounds_played_header = [int(x) for x in '{:0{size}b}'.format(rounds_played,size=ROUND_NUMBER_BITS)]
     bye_bit = [1] if bye_player else [0]
     bit_list = number_of_players_header + number_of_rounds_header + rounds_played_header + bye_bit
 
@@ -465,10 +465,10 @@ def get_player_width(pnum: int) -> int:
 
 def decode_header(ba_string: str):
     
-    number_of_players = int(ba_string[:5], 2) + 1 # 0 indexed
-    number_of_rounds = int(ba_string[5:8] ,2)
-    played_rounds = int(ba_string[8:11] ,2)
-    bye_player = True if bool(int(ba_string[11:12])) else False
+    number_of_players = int(ba_string[:PLAYER_NUMBER_BITS], 2) + 1 # 0 indexed
+    number_of_rounds = int(ba_string[PLAYER_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS] ,2)
+    played_rounds = int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS] ,2)
+    bye_player = True if bool(int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1])) else False
     return number_of_players, number_of_rounds, played_rounds, bye_player
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
