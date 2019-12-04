@@ -7,6 +7,8 @@ import azure.functions as func
 #base_url = "localhost:7071"
 base_url = "swisspairings.azurewebsites.net"
 
+
+
 new_game_form = f"""<!DOCTYPE html>
     <html>
     <body>
@@ -111,15 +113,20 @@ class State:
         self.bye_player = False
 
         if state_string is not None:
+
             ba = bitarray.bitarray()
             ba.encode(symbols, state_string)
             ba_string = ba.to01()
             self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player = decode_header(ba_string) 
             self.state_string = state_string
+
             for i in range(self.number_of_players):
                 player = Player(i)
-                self.players.append(player)   
+                self.players.append(player)
+
             if self.played_rounds > 0:
+
+                # read the history from the state in to the player objs, calc points and get rankings
                 width = get_player_width(self.number_of_players)
                 start_index = 12
                 end_index = start_index + width
@@ -134,14 +141,12 @@ class State:
                         end_index = start_index + width
                 for player in self.players:
                     player.calculate_points(self)
-
                 ranked_player_list = self.get_ranked_players()
 
+                # if game isn't over yet, create the next pairings
                 if self.played_rounds < self.number_of_rounds:
-                    self.ordered_pairing_list = []
-                    
+                    self.ordered_pairing_list = []                    
                     next_target = 1
-
                     for player in ranked_player_list:
                         player_matched = False
 
@@ -195,12 +200,14 @@ class State:
                                 player_matched = True
                             else:
                                 next_target += 1
+
+                # the rankings are final now                
                 else:
                     for player in ranked_player_list:
                         self.ordered_pairing_list.append(player.player_number)
-
-
-        if self.played_rounds == 0: # create the ordered pairing list for the first round
+        
+        # if this is the first round, read the state (made in the post) into the pairing list for the view to consume
+        if self.played_rounds == 0: 
             width = get_player_width(self.number_of_players)
             start_index = 12
             end_index = start_index + width
@@ -210,9 +217,11 @@ class State:
                 start_index = end_index
                 end_index = start_index + width
 
+    # may need to add 2nd and 3rd tie breakers here
     def get_ranked_players(self) -> list:
         return sorted(self.players, key = lambda x: (x.points, x.OMW), reverse=True)
 
+    # create the random pairings (called from the post of game setup)
     def build_first_state_string(self, form: dict):
 
         pnum = int(form['pnum'])
@@ -239,6 +248,20 @@ class State:
         state = ba.decode(symbols)
         self.state_string = ''.join(state)
 
+    # read results from result form post into the player objects (called from the post of results)
+    def update_history(self, form: dict):
+
+        for k, v in form.items():
+            player_nums = k.split("_")
+            player_1_num = int(player_nums[0])
+            player_2_num = int(player_nums[1])
+            player1 = self.players[player_1_num]
+            player2 = self.players[player_2_num]
+            games_won_nums = v.split("_")
+            player1.add_result(player_2_num, int(games_won_nums[0]))
+            player2.add_result(player_1_num, int(games_won_nums[1]))
+
+    # encode the results into the state string (called from the post of results)
     def build_new_state_string(self):
         
         self.played_rounds = self.played_rounds + 1
@@ -256,18 +279,6 @@ class State:
         ba = bitarray.bitarray(header)
         state = ba.decode(symbols)
         self.state_string = ''.join(state)
-
-    def update_history(self, form: dict):
-
-        for k, v in form.items():
-            player_nums = k.split("_")
-            player_1_num = int(player_nums[0])
-            player_2_num = int(player_nums[1])
-            player1 = self.players[player_1_num]
-            player2 = self.players[player_2_num]
-            games_won_nums = v.split("_")
-            player1.add_result(player_2_num, int(games_won_nums[0]))
-            player2.add_result(player_1_num, int(games_won_nums[1]))
     
 class Round:
     opp_number = -1
@@ -338,7 +349,6 @@ class Player:
         omwp = sum(round_list)/len(round_list)
         self.OMW = omwp
 
-
     def player_has_played_target(self, opp_num: int) -> bool:
         has_played = False
         for round in self.rounds:
@@ -346,7 +356,6 @@ class Player:
                 has_played = True
                 break
         return has_played
-
 
 def get_final_results(state: State) -> str:
     form_string = f"""<!DOCTYPE html>
@@ -397,13 +406,15 @@ def get_pairing_controls(state: State) -> str:
         </html>"""
     return form_string           
     
-def get_header(pnum: int, rnum: int, rcurr: int, bye_player: bool) -> list:
+def get_header(number_of_players: int, number_of_rounds: int, rounds_played: int, bye_player: bool) -> list:
 
-    pnum_header = [int(x) for x in '{:0{size}b}'.format(pnum,size=5)]
-    rnum_header = [int(x) for x in '{:0{size}b}'.format(rnum,size=3)]
-    rcurr_header = [int(x) for x in '{:0{size}b}'.format(rcurr,size=3)]
+    number_of_players -= 1 # 0 index the number of players
+
+    number_of_players_header = [int(x) for x in '{:0{size}b}'.format(number_of_players,size=5)]
+    number_of_rounds_header = [int(x) for x in '{:0{size}b}'.format(number_of_rounds,size=3)]
+    rounds_played_header = [int(x) for x in '{:0{size}b}'.format(rounds_played,size=3)]
     bye_bit = [1] if bye_player else [0]
-    bit_list = pnum_header + rnum_header + rcurr_header + bye_bit
+    bit_list = number_of_players_header + number_of_rounds_header + rounds_played_header + bye_bit
 
     return bit_list
 
@@ -423,7 +434,7 @@ def get_player_width(pnum: int) -> int:
 
 def decode_header(ba_string: str):
     
-    number_of_players = int(ba_string[:5], 2)
+    number_of_players = int(ba_string[:5], 2) + 1 # 0 indexed
     number_of_rounds = int(ba_string[5:8] ,2)
     played_rounds = int(ba_string[8:11] ,2)
     bye_player = True if bool(int(ba_string[11:12])) else False
