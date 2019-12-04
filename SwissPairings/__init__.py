@@ -8,7 +8,7 @@ new_game_form = """<!DOCTYPE html>
     <html>
     <body>
     <h2>New Game</h2>
-    <form action="http://localhost:7071/SwissPairings" method="POST">
+    <form action="https://swisspairings.azurewebsites.net/SwissPairings" method="POST">
         Number of Players<br>
         <input type="text" name="pnum">
         <br>
@@ -368,7 +368,7 @@ def get_pairing_controls(state: State) -> str:
     <html>
     <body>
     <h2>Round {state.played_rounds + 1} : {state.state_string}</h2>
-    <form action="http://localhost:7071/SwissPairings/{state.state_string}" method="POST">
+    <form action="https://swisspairings.azurewebsites.net/SwissPairings/{state.state_string}" method="POST">
         <br>"""
 
     pnum = len(state.ordered_pairing_list)
@@ -449,14 +449,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         if state_string is None:
             current_state = State(None)
             current_state.build_first_state_string(req.form)
-            headers = {"Location":  f"http://localhost:7071/SwissPairings/{current_state.state_string}"}
+            headers = {"Location":  f"https://swisspairings.azurewebsites.net/SwissPairings/{current_state.state_string}"}
             return func.HttpResponse(status_code=302, headers=headers)
 
         else:
             current_state = State(state_string)
             current_state.update_history(req.form)
             current_state.build_new_state_string()
-            headers = {"Location":  f"http://localhost:7071/SwissPairings/{current_state.state_string}"}
+            headers = {"Location":  f"https://swisspairings.azurewebsites.net/SwissPairings/{current_state.state_string}"}
             return func.HttpResponse(status_code=302, headers=headers)
 
     else:
