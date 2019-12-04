@@ -7,6 +7,10 @@ import azure.functions as func
 #base_url = "localhost:7071"
 base_url = "swisspairings.azurewebsites.net"
 
+PLAYER_NUMBER_BITS = 7 # because 129 player is 1 player too many :')
+ROUND_NUMBER_BITS = 4 # because 17 rounds would be inhumane. 16 is totally cool though
+
+
 symbols = {
                 '0' : bitarray.bitarray('000000'),
                 '1' : bitarray.bitarray('000001'),
@@ -83,7 +87,7 @@ class State:
     players = []
     bye_player = False
 
-    def __init__(self, state_string: str):
+    def __init__(self, state_string: str, http_method: str):
 
         self.number_of_players = 0
         self.played_rounds = 0
@@ -110,6 +114,10 @@ class State:
 
                 # read the history from the state in to the player objs, calc points and get rankings
                 self.populate_player_object_with_from_history_in_state(ba_string)
+
+                if "POST" in http_method:
+                    return # we won't need to do the rest
+
                 ranked_player_list = self.get_player_rankings()
 
                 # if game isn't over yet, create the next pairings from the rankings (this is complicated)
@@ -122,7 +130,7 @@ class State:
                         self.ordered_pairing_list.append(player.player_number)
         
             # if this is the first round, read the state (made in the post) into the pairing list for the view to consume
-            if self.played_rounds == 0: 
+            if self.played_rounds == 0 and "GET" in http_method: 
                 width = get_player_width(self.number_of_players)
                 start_index = 12
                 end_index = start_index + width
@@ -468,7 +476,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         if state_string is None:
             return func.HttpResponse(body=get_new_game_form(), mimetype="text/html")
         else:
-            current_state = State(state_string)
+            current_state = State(state_string, req.method)
 
             if current_state.played_rounds < current_state.number_of_rounds:
                 pairing_form = get_pairing_controls(current_state)
@@ -479,13 +487,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     elif "POST" in req.method:
         if state_string is None:
-            current_state = State(None)
+            current_state = State(None, req.method)
             current_state.build_first_state_string(req.form)
             headers = {"Location":  f"http://{base_url}/SwissPairings/{current_state.state_string}"}
             return func.HttpResponse(status_code=302, headers=headers)
 
         else:
-            current_state = State(state_string)
+            current_state = State(state_string, req.method)
             current_state.update_history(req.form)
             current_state.build_new_state_string()
             headers = {"Location":  f"http://{base_url}/SwissPairings/{current_state.state_string}"}
