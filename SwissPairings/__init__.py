@@ -328,6 +328,7 @@ class Player:
         omwp = 0
         round_list = []
         
+        # for this player, each round they play has an opponent with a OMW
         for round in self.rounds:
             opp_num = round.opp_number
             opp_player = state.players[opp_num]   
@@ -335,13 +336,14 @@ class Player:
             opp_matches = 0            
             round_num = 0
 
-            for opp_round in opp_player.rounds:                
-                if state.bye_player and (opp_num + 1) == state.number_of_players:
-                    continue # byes dont count
-                else:
-                    opp_matches += 1
-                    if opp_round.games_won > state.players[opp_round.opp_number].rounds[round_num].games_won:
-                        opp_match_wins += 1
+            if state.bye_player and (opp_num + 1) == state.number_of_players:
+                continue # byes dont count
+
+            # our opponent for each round had rounds of their own
+            for opp_round in opp_player.rounds:               
+                opp_matches += 1
+                if opp_round.games_won > state.players[opp_round.opp_number].rounds[round_num].games_won:
+                    opp_match_wins += 1
                 round_num += 1
             
             if opp_matches == 0:
@@ -353,8 +355,11 @@ class Player:
                     oppwp = .33
                 round_list.append(oppwp)
         
-        omwp = sum(round_list)/len(round_list)
-        self.OMW = omwp
+        if len(round_list) > 0:
+            omwp = sum(round_list)/len(round_list)
+            self.OMW = omwp
+        else:
+            self.OMW = 0
 
     def player_has_played_target(self, opp_num: int) -> bool:
         has_played = False
