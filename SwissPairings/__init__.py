@@ -7,25 +7,6 @@ import azure.functions as func
 #base_url = "localhost:7071"
 base_url = "swisspairings.azurewebsites.net"
 
-
-
-new_game_form = f"""<!DOCTYPE html>
-    <html>
-    <body>
-    <h2>New Game</h2>
-    <form action="http://{base_url}/SwissPairings" method="POST">
-        Number of Players<br>
-        <input type="text" name="pnum">
-        <br>
-        Number of Rounds<br>
-        <input type="text" name="rnum">
-        <br>
-        <br><br>
-        <button type="submit">Submit</button>
-    </form>
-    </body>
-    </html>"""
-
 symbols = {
                 '0' : bitarray.bitarray('000000'),
                 '1' : bitarray.bitarray('000001'),
@@ -375,6 +356,25 @@ class Player:
                 break
         return has_played
 
+def get_new_game_form() -> str:
+    new_game_form = f"""<!DOCTYPE html>
+    <html>
+    <body>
+    <h2>New Game</h2>
+    <form action="http://{base_url}/SwissPairings" method="POST">
+        Number of Players<br>
+        <input type="text" name="pnum">
+        <br>
+        Number of Rounds<br>
+        <input type="text" name="rnum">
+        <br>
+        <br><br>
+        <button type="submit">Submit</button>
+    </form>
+    </body>
+    </html>"""
+    return new_game_form
+
 def get_final_results(state: State) -> str:
     form_string = f"""<!DOCTYPE html>
     <html>
@@ -466,7 +466,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     if "GET" in req.method:
         if state_string is None:
-            return func.HttpResponse(body=new_game_form, mimetype="text/html")
+            return func.HttpResponse(body=get_new_game_form(), mimetype="text/html")
         else:
             current_state = State(state_string)
 
