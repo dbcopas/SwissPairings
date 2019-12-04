@@ -118,7 +118,7 @@ class State:
                 self.players.append(player)   
             if self.played_rounds > 0:
                 width = get_player_width(self.number_of_players)
-                start_index = 11
+                start_index = 12
                 end_index = start_index + width
                 for _ in range(self.played_rounds):
                     for player in self.players:
@@ -199,7 +199,7 @@ class State:
 
         if self.played_rounds == 0: # create the ordered pairing list for the first round
             width = get_player_width(self.number_of_players)
-            start_index = 11
+            start_index = 12
             end_index = start_index + width
             for i in range(self.number_of_players):
                 player_string = ba_string[start_index:end_index]
@@ -396,7 +396,7 @@ def get_pairing_controls(state: State) -> str:
     
 def get_header(pnum: int, rnum: int, rcurr: int, bye_player: bool) -> list:
 
-    pnum_header = [int(x) for x in '{:0{size}b}'.format(pnum,size=4)]
+    pnum_header = [int(x) for x in '{:0{size}b}'.format(pnum,size=5)]
     rnum_header = [int(x) for x in '{:0{size}b}'.format(rnum,size=3)]
     rcurr_header = [int(x) for x in '{:0{size}b}'.format(rcurr,size=3)]
     bye_bit = [1] if bye_player else [0]
@@ -420,10 +420,10 @@ def get_player_width(pnum: int) -> int:
 
 def decode_header(ba_string: str):
     
-    number_of_players = int(ba_string[:4], 2)
-    number_of_rounds = int(ba_string[4:7] ,2)
-    played_rounds = int(ba_string[7:10] ,2)
-    bye_player = True if bool(int(ba_string[10:11])) else False
+    number_of_players = int(ba_string[:5], 2)
+    number_of_rounds = int(ba_string[5:8] ,2)
+    played_rounds = int(ba_string[8:11] ,2)
+    bye_player = True if bool(int(ba_string[11:12])) else False
     return number_of_players, number_of_rounds, played_rounds, bye_player
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
