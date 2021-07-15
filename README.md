@@ -1,5 +1,3 @@
-# SwissPairings
-
 Serverless and Stateless
 ========================
 
