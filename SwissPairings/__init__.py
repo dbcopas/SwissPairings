@@ -374,7 +374,7 @@ def get_new_game_form() -> str:
     <html>
     <body>
     <h2>New Game</h2>
-    <form action="http://{base_url}/SwissPairings" method="POST">
+    <form action="https://{base_url}/SwissPairings" method="POST">
         Number of Players (Max 128)<br>
         <input type="text" name="pnum" value="8">
         <br>
@@ -411,7 +411,7 @@ def get_pairing_controls(state: State) -> str:
     <html>
     <body>
     <h2>Round {state.played_rounds + 1} : {state.state_string}</h2>
-    <form action="http://{base_url}/SwissPairings/{state.state_string}" method="POST">
+    <form action="https://{base_url}/SwissPairings/{state.state_string}" method="POST">
         <br>"""
 
     pnum = len(state.ordered_pairing_list)
@@ -494,14 +494,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         if state_string is None:
             current_state = State(None, req.method)
             current_state.build_first_state_string(req.form)
-            headers = {"Location":  f"http://{base_url}/SwissPairings/{current_state.state_string}"}
+            headers = {"Location":  f"https://{base_url}/SwissPairings/{current_state.state_string}"}
             return func.HttpResponse(status_code=302, headers=headers)
 
         else:
             current_state = State(state_string, req.method)
             current_state.update_history(req.form)
             current_state.build_new_state_string()
-            headers = {"Location":  f"http://{base_url}/SwissPairings/{current_state.state_string}"}
+            headers = {"Location":  f"https://{base_url}/SwissPairings/{current_state.state_string}"}
             return func.HttpResponse(status_code=302, headers=headers)
 
     else:
