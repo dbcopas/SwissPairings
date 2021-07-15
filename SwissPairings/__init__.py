@@ -7,7 +7,7 @@ import azure.functions as func
 #base_url = "localhost:7071"
 base_url = "swisspairings.azurewebsites.net"
 
-PLAYER_NUMBER_BITS = 7 # because 129 player is 1 player too many :')
+PLAYER_NUMBER_BITS = 7 # because 129 players is 1 player too many :')
 ROUND_NUMBER_BITS = 4 # because 17 rounds would be inhumane. 16 is totally cool though
 
 
@@ -375,11 +375,11 @@ def get_new_game_form() -> str:
     <body>
     <h2>New Game</h2>
     <form action="http://{base_url}/SwissPairings" method="POST">
-        Number of Players<br>
-        <input type="text" name="pnum">
+        Number of Players (Max 128)<br>
+        <input type="text" name="pnum" value="8">
         <br>
-        Number of Rounds<br>
-        <input type="text" name="rnum">
+        Number of Rounds (Max 16)<br>
+        <input type="text" name="rnum" value = "3">
         <br>
         <br><br>
         <button type="submit">Submit</button>
