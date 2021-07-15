@@ -17,6 +17,14 @@ Why is this here?
 -----------------
 Just for the fun, and as a demo of how serverless applications can still have a state.
 
+How it used?
+------------
+Simple enter the number of players (128 max, although good luck managing a tournament with more players than that), and the number of rounds (for a
+clear winner the minimum is log base 2 of the number of players)
+
 Todo
 ----
+Error handling and form validation!
+
 Someday one of my kids will write a nice user interface as a learning exercise ;)
+
