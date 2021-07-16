@@ -4,8 +4,8 @@ import bitarray
 from enum import Enum
 import azure.functions as func
 
-#base_url = "localhost:7071"
-base_url = "swisspairings.azurewebsites.net"
+#base_url = "http://localhost:7071"
+base_url = "https://swisspairings.azurewebsites.net"
 
 PLAYER_NUMBER_BITS = 7 # because 129 players is 1 player too many :')
 ROUND_NUMBER_BITS = 4 # because 17 rounds would be inhumane. 16 is totally cool though
@@ -101,7 +101,8 @@ class State:
         if state_string is not None:
 
             ba = bitarray.bitarray()
-            ba.encode(symbols, state_string)
+
+            ba.encode(symbols, state_string.split("_")[0])
             ba_string = ba.to01()
             self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player = decode_header(ba_string) 
             self.state_string = state_string
@@ -260,8 +261,8 @@ class State:
 
         for k, v in form.items():
             player_nums = k.split("_")
-            player_1_num = int(player_nums[0])
-            player_2_num = int(player_nums[1])
+            player_1_num = int(player_nums[0])-1
+            player_2_num = int(player_nums[1])-1
             player1 = self.players[player_1_num]
             player2 = self.players[player_2_num]
             games_won_nums = v.split("_")
@@ -285,7 +286,8 @@ class State:
         header = pad_bits(header)
         ba = bitarray.bitarray(header)
         state = ba.decode(symbols)
-        self.state_string = ''.join(state)
+        old_state_string = self.state_string
+        self.state_string = ''.join(state) + "_" + old_state_string
     
 class Round:
     opp_number = -1
@@ -373,18 +375,25 @@ def get_new_game_form() -> str:
     new_game_form = f"""<!DOCTYPE html>
     <html>
     <body>
+    <h1>Welcome to SwissPairings</h1>
+    <h3>by Douglas Copas</h3>
     <h2>New Game</h2>
-    <form action="https://{base_url}/SwissPairings" method="POST">
+    <form action="{base_url}/SwissPairings" method="POST">
         Number of Players (Max 128)<br>
-        <input type="text" name="pnum" value="8">
-        <br>
+        <input type="text" name="pnum" value="8" required>
+        <br><br>
         Number of Rounds (Max 16)<br>
-        <input type="text" name="rnum" value = "3">
+        <input type="text" name="rnum" value = "3" required>
         <br>
         <br><br>
         <button type="submit">Submit</button>
+        <br><br><br><br>
     </form>
     </body>
+    <h3>Usage:</h3>
+    <p>Enter the number of players. The suggested number of rounds is calculated automatically.<br>
+    In a Swiss tournement this is log<sub>2</sub>(number of players). Assign each player a number.<br>
+    Click Submit</p>
     </html>"""
     return new_game_form
 
@@ -398,7 +407,7 @@ def get_final_results(state: State) -> str:
     pnum = len(state.ordered_pairing_list)
     start = 0
     while (start + 1) <= pnum:
-        form_string += f"""Place {start + 1}: Player {state.ordered_pairing_list[start]}<br>    
+        form_string += f"""Place {start + 1}: Player {state.ordered_pairing_list[start]+1}<br>    
         <br><br>"""
         start += 1
     form_string += """<br><br>
@@ -411,23 +420,27 @@ def get_pairing_controls(state: State) -> str:
     <html>
     <body>
     <h2>Round {state.played_rounds + 1} : {state.state_string}</h2>
-    <form action="https://{base_url}/SwissPairings/{state.state_string}" method="POST">
+    <form action="{base_url}/SwissPairings/{state.state_string}" method="POST">
         <br>"""
 
     pnum = len(state.ordered_pairing_list)
     start = 0
     while (start + 1) <= pnum:
-        form_string += f"""Player {state.ordered_pairing_list[start]} vs Player {state.ordered_pairing_list[start + 1]}<br>
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="3_0">
-        Player {state.ordered_pairing_list[start]}: 3-0&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="2_1">
-        Player {state.ordered_pairing_list[start]}: 2-1&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="1_2">
-        Player {state.ordered_pairing_list[start]}: 1-2&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="0_3">
-        Player {state.ordered_pairing_list[start]}: 0-3&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]}_{state.ordered_pairing_list[start+1]}" value="1_1">
-        Player {state.ordered_pairing_list[start]}: 1-1&nbsp
+        form_string += f"""Player {state.ordered_pairing_list[start]+1} vs Player {state.ordered_pairing_list[start + 1]+1}<br>
+        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="2_0">
+        Player {state.ordered_pairing_list[start]+1}: 2-0&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="1_0">
+        Player {state.ordered_pairing_list[start]+1}: 1-0&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="2_1">
+        Player {state.ordered_pairing_list[start]+1}: 2-1&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="1_2">
+        Player {state.ordered_pairing_list[start]+1}: 1-2&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="0_1">
+        Player {state.ordered_pairing_list[start]+1}: 0-1&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="0_2">
+        Player {state.ordered_pairing_list[start]+1}: 0-2&nbsp
+        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="1_1">
+        Player {state.ordered_pairing_list[start]+1}: 1-1&nbsp
         <br><br>"""
         start += 2
     form_string += """<br><br>
@@ -494,14 +507,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         if state_string is None:
             current_state = State(None, req.method)
             current_state.build_first_state_string(req.form)
-            headers = {"Location":  f"https://{base_url}/SwissPairings/{current_state.state_string}"}
+            headers = {"Location":  f"{base_url}/SwissPairings/{current_state.state_string}"}
             return func.HttpResponse(status_code=302, headers=headers)
 
         else:
             current_state = State(state_string, req.method)
             current_state.update_history(req.form)
             current_state.build_new_state_string()
-            headers = {"Location":  f"https://{base_url}/SwissPairings/{current_state.state_string}"}
+            headers = {"Location":  f"{base_url}/SwissPairings/{current_state.state_string}"}
             return func.HttpResponse(status_code=302, headers=headers)
 
     else:
