@@ -4,8 +4,8 @@ import bitarray
 from enum import Enum
 import azure.functions as func
 
-#base_url = "http://localhost:7071"
-base_url = "https://swisspairings.azurewebsites.net"
+base_url = "http://localhost:7071"
+#base_url = "https://swisspairings.azurewebsites.net"
 
 PLAYER_NUMBER_BITS = 7 # because 129 players is 1 player too many :')
 ROUND_NUMBER_BITS = 4 # because 17 rounds would be inhumane. 16 is totally cool though
@@ -426,21 +426,27 @@ def get_pairing_controls(state: State) -> str:
     pnum = len(state.ordered_pairing_list)
     start = 0
     while (start + 1) <= pnum:
-        form_string += f"""Player {state.ordered_pairing_list[start]+1} vs Player {state.ordered_pairing_list[start + 1]+1}<br>
+        is_bye_player = state.bye_player and (state.ordered_pairing_list[start] == pnum - 1 or state.ordered_pairing_list[start+1] == pnum - 1)
+        first_player_string = "BYE" if state.ordered_pairing_list[start] == pnum - 1 else  state.ordered_pairing_list[start]+1
+        second_player_string = "BYE" if state.ordered_pairing_list[start+1] == pnum - 1 else  state.ordered_pairing_list[start+1]+1
+        bye_string = "readonly" if is_bye_player else ""
+        options_string_checked = """ value="Y" checked """ if is_bye_player
+        options_string_disabled = """ value="N" diabled """
+        form_string += f"""Player {first_player_string} vs Player {second_player_string}<br>
         <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="2_0">
-        Player {state.ordered_pairing_list[start]+1}: 2-0&nbsp
+        Player {first_player_string}: 2-0&nbsp
         <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="1_0">
-        Player {state.ordered_pairing_list[start]+1}: 1-0&nbsp
+        Player {first_player_string}: 1-0&nbsp
         <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="2_1">
-        Player {state.ordered_pairing_list[start]+1}: 2-1&nbsp
+        Player {first_player_string}: 2-1&nbsp
         <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="1_2">
-        Player {state.ordered_pairing_list[start]+1}: 1-2&nbsp
+        Player {first_player_string}: 1-2&nbsp
         <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="0_1">
-        Player {state.ordered_pairing_list[start]+1}: 0-1&nbsp
+        Player {first_player_string}: 0-1&nbsp
         <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="0_2">
-        Player {state.ordered_pairing_list[start]+1}: 0-2&nbsp
+        Player {first_player_string}: 0-2&nbsp
         <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="1_1">
-        Player {state.ordered_pairing_list[start]+1}: 1-1&nbsp
+        Player {first_player_string}: 1-1&nbsp
         <br><br>"""
         start += 2
     form_string += """<br><br>
