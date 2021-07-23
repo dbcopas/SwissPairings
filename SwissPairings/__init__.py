@@ -4,8 +4,8 @@ import bitarray
 from enum import Enum
 import azure.functions as func
 
-base_url = "http://localhost:7071"
-#base_url = "https://swisspairings.azurewebsites.net"
+#base_url = "http://localhost:7071"
+base_url = "https://swisspairings.azurewebsites.net"
 
 PLAYER_NUMBER_BITS = 7 # because 129 players is 1 player too many :')
 ROUND_NUMBER_BITS = 4 # because 17 rounds would be inhumane. 16 is totally cool though
@@ -96,6 +96,7 @@ class State:
         self.ordered_pairing_list = []
         self.players = []
         self.bye_player = False
+        self.ranked_player_list = []
 
         # consume the state if it is there to be consumed
         if state_string is not None:
@@ -120,6 +121,7 @@ class State:
                     return # we won't need to do the rest
 
                 ranked_player_list = self.get_player_rankings()
+                self.ranked_player_list = ranked_player_list
 
                 # if game isn't over yet, create the next pairings from the rankings (this is complicated)
                 if self.played_rounds < self.number_of_rounds:
@@ -399,24 +401,16 @@ def get_new_game_form() -> str:
 
 def get_final_results(state: State) -> str:
     form_string = f"""<!DOCTYPE html>
+    <head><style type="text/css">.centerText{{text-align: center;}}</style></head>
     <html>
-    <body>
-    <h2>FINAL RESULTS</h2>
-        <br>"""
-
-    pnum = len(state.ordered_pairing_list)
-    index = 0
-    while (index + 1) <= pnum:
-        form_string += f"""Place {index + 1}: Player {state.ordered_pairing_list[index]+1}<br>    
-        <br><br>"""
-        index += 1
-    form_string += """<br><br>
-        </body>
-        </html>"""
+    <body>"""
+    form_string += get_rankings_and_links(state)
+    form_string += "</body></html>"
     return form_string   
 
 def get_pairing_controls(state: State) -> str:
     form_string = f"""<!DOCTYPE html>
+    <head><style type="text/css">.centerText{{text-align: center;}}</style></head>
     <html>
     <body>
     <h2>Round {state.played_rounds + 1} : {state.state_string}</h2>
@@ -425,7 +419,7 @@ def get_pairing_controls(state: State) -> str:
 
     pnum = len(state.ordered_pairing_list)
     index = 0
-    while (index + 1) <= pnum:
+    while (index) < pnum:
         is_bye_player = state.bye_player and (state.ordered_pairing_list[index] == pnum - 1 or state.ordered_pairing_list[index+1] == pnum - 1)
         current_players = [state.ordered_pairing_list[index]+1, state.ordered_pairing_list[index+1]+1]
         current_players.sort()
@@ -452,17 +446,51 @@ def get_pairing_controls(state: State) -> str:
             first_player_gets_bye = True if state.ordered_pairing_list[index+1] == pnum - 1 else False
             bye_player = state.ordered_pairing_list[index]+1 if first_player_gets_bye else state.ordered_pairing_list[index+1]+1
             bye_value = "2_0" if first_player_gets_bye else "0_2"
-
             form_string += f"""Player {bye_player} BYE<input type="hidden" name="{state.ordered_pairing_list[index]+1}_{state.ordered_pairing_list[index+1]+1}" value="{bye_value}"><br><br>"""
-
         index += 2
+
     form_string += """<br><br>
         <button type="submit">Submit</button>
-        </form>
-        </body>
+        </form><br>"""
+
+    if state.played_rounds > 0:
+        form_string += get_rankings_and_links(state)
+
+    form_string += f"""<br><a href="{base_url}/SwissPairings/">New game</a>"""
+
+        
+
+    form_string += """</body>
         </html>"""
     return form_string           
     
+def get_rankings_and_links(state: State) -> str:
+    form_string = """<h3>Rankings</h3><table style="width:25%"><tr><th>Rank</th><th>Player</th><th>Points</th><th>OMW%</th></tr>"""
+    index = 0
+    pnum = len(state.ordered_pairing_list)
+    while (index) < pnum:
+        form_string += f"""<tr><td class="centerText">{index + 1}</td><td class="centerText">{state.ranked_player_list[index].player_number + 1}</td>
+        <td class="centerText">{state.ranked_player_list[index].points}</td><td class="centerText">{"{:.3f}".format(state.ranked_player_list[index].OMW)}</td></tr>"""
+        index += 1
+    form_string += "</table><br><br><h3>Past Rounds</h3>"
+
+    states = state.state_string.split('_')
+    states.reverse()
+
+    link_list = []
+
+    index = 0
+    while (index) < state.played_rounds:
+        part_index = 0
+        state_url = ""
+        while part_index <= index:
+            state_url = states[part_index] + "_" + state_url
+            part_index += 1
+        form_string += f"""<a href="{base_url}/SwissPairings/{state_url[:-1]}">Revert to round {index + 1} result input</a><br><br>"""
+        index += 1
+
+    return form_string
+
 def get_header(number_of_players: int, number_of_rounds: int, rounds_played: int, bye_player: bool) -> list:
 
     number_of_players -= 1 # 0 index the number of players
