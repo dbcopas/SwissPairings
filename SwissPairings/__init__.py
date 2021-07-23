@@ -4,8 +4,8 @@ import bitarray
 from enum import Enum
 import azure.functions as func
 
-#base_url = "http://localhost:7071"
-base_url = "https://swisspairings.azurewebsites.net"
+base_url = "http://localhost:7071"
+#base_url = "https://swisspairings.azurewebsites.net"
 
 PLAYER_NUMBER_BITS = 7 # because 129 players is 1 player too many :')
 ROUND_NUMBER_BITS = 4 # because 17 rounds would be inhumane. 16 is totally cool though
@@ -227,9 +227,12 @@ class State:
             player.calculate_points(self)
         
 
-    # may need to add 2nd and 3rd tie breakers here
     def get_player_rankings(self) -> list:
-        return sorted(self.players, key = lambda x: (x.points, x.OMW), reverse=True)
+        for player in self.players:
+            assert isinstance(player, Player)
+            player.player_score = player.points * 1000000000 + player.AOMWP * 1000000000 + player.GWP * 1000000 + player.AOGWP * 1000
+
+        return sorted(self.players, key = lambda x: x.player_score, reverse=True)
 
     # create the random pairings (called from the post of game setup)
     def build_first_state_string(self, form: dict):
@@ -302,13 +305,20 @@ class Player:
     player_number = -1
     rounds = []
     points = 0
-    OMW = 0
+    AOMWP = 0
+    GWP = 0
+    AOGWP = 0
+    total_games_played = 0
+    total_games_won = 0
+    player_score = 0
 
     def __init__(self, pnum:int):
         self.points = 0
         self.rounds = []
         self.player_number = pnum
-        self.OMW = 0
+        self.AOMWP = 0.0
+        self.GWP = 0.0
+        self.AOGWP = 0.0
 
     def add_result(self, opp_number:int, games_won: int):
         round = Round(opp_number, games_won)
@@ -317,27 +327,40 @@ class Player:
     def calculate_points(self, state: State):
 
         if state.bye_player and (self.player_number + 1) == state.number_of_players:
-            self.OMW = 0.0 # this is the phantom player, they get no OMW
+            self.AOMWP = 1.0 # this is the phantom player, they get no AOMWP
+            self.GWP = 0.0
+            self.AOGWP = 1.0
             return
 
         round_num = 0
+        self.total_games_played = 0
+        self.total_games_won = 0
+
         for round in self.rounds:
+            self.total_games_played += (round.games_won + state.players[round.opp_number].rounds[round_num].games_won)
+            self.total_games_won += round.games_won
             if round.games_won > state.players[round.opp_number].rounds[round_num].games_won:
                 self.points += 3
             if round.games_won == 1 and state.players[round.opp_number].rounds[round_num].games_won == 1:
                 self.points += 1
             round_num += 1
 
-        # calculate OMW percentage
-        omwp = 0
-        round_list = []
+        # calculate GWP
+        self.GWP = float(float(self.total_games_won)/(float(self.total_games_played)))
+
+        # calculate AOMWP 
+        AOMWP = 0
+        round_list_match = []
+        round_list_games = []
         
-        # for this player, each round they play has an opponent with a OMW
+        # for this player, each round they play has an opponent with a AOMWP
         for round in self.rounds:
             opp_num = round.opp_number
             opp_player = state.players[opp_num]   
             opp_match_wins = 0
-            opp_matches = 0            
+            opp_matches = 0
+            opp_games_won = 0
+            opp_games_played = 0            
             round_num = 0
 
             if state.bye_player and (opp_num + 1) == state.number_of_players:
@@ -346,24 +369,36 @@ class Player:
             # our opponent for each round had rounds of their own
             for opp_round in opp_player.rounds:               
                 opp_matches += 1
+                opp_games_won += opp_round.games_won
+                opp_games_played += opp_round.games_won + state.players[opp_round.opp_number].rounds[round_num].games_won
                 if opp_round.games_won > state.players[opp_round.opp_number].rounds[round_num].games_won:
                     opp_match_wins += 1
                 round_num += 1
             
             if opp_matches == 0:
-                round_list.append(0)
+                round_list_match.append(0)
+                round_list_games.append(0)
 
             else:
                 oppwp = float(float(opp_match_wins)/(float(opp_matches)))
                 if oppwp < .33:
                     oppwp = .33
-                round_list.append(oppwp)
+                round_list_match.append(oppwp)
+
+                oppgwp = float(float(opp_games_won)/(float(opp_games_played)))
+                round_list_games.append(oppgwp)
         
-        if len(round_list) > 0:
-            omwp = sum(round_list)/len(round_list)
-            self.OMW = omwp
+        if len(round_list_match) > 0:
+            AOMWP = sum(round_list_match)/len(round_list_match)
+            self.AOMWP = AOMWP
         else:
-            self.OMW = 0
+            self.AOMWP = 0
+
+        if len(round_list_games) > 0:
+            AOGWP = sum(round_list_games)/len(round_list_games)
+            self.AOGWP = AOGWP
+        else:
+            self.AOGWP = 0
 
     def player_has_played_target(self, opp_num: int) -> bool:
         has_played = False
@@ -394,8 +429,9 @@ def get_new_game_form() -> str:
     </body>
     <h3>Usage:</h3>
     <p>Enter the number of players. The suggested number of rounds is calculated automatically.<br>
-    In a Swiss tournement this is log<sub>2</sub>(number of players). Assign each player a number.<br>
-    Click Submit</p>
+    In a Swiss tournement this is log<sub>2</sub>(number of players). Assign each player a number.<br><br>
+    Click the Submit button.<br><br>Tie breaker is Average Opponent Match Win Percentage (AOMWP). Second tie breaker is Game Win Percentage (GWP).<br>
+    Third tie breaker is Average Opponent Game Win Percentage (AOGWP). Fourth tie breaker is rock-paper-scissors.<br>Does not yet support player drops.</p>
     </html>"""
     return new_game_form
 
@@ -466,12 +502,13 @@ def get_pairing_controls(state: State) -> str:
     return form_string           
     
 def get_rankings_and_links(state: State) -> str:
-    form_string = """<h3>Rankings</h3><table style="width:25%"><tr><th>Rank</th><th>Player</th><th>Points</th><th>OMW%</th></tr>"""
+    form_string = """<h3>Rankings</h3><table style="width:25%"><tr><th>Rank</th><th>Player</th><th>Points</th><th>AOMWP</th><th>GWP</th><th>AOGWP</th></tr>"""
     index = 0
     pnum = len(state.ordered_pairing_list)
     while (index) < pnum:
         form_string += f"""<tr><td class="centerText">{index + 1}</td><td class="centerText">{state.ranked_player_list[index].player_number + 1}</td>
-        <td class="centerText">{state.ranked_player_list[index].points}</td><td class="centerText">{"{:.3f}".format(state.ranked_player_list[index].OMW)}</td></tr>"""
+        <td class="centerText">{state.ranked_player_list[index].points}</td><td class="centerText">{"{:.3f}".format(state.ranked_player_list[index].AOMWP)}</td>
+        <td class="centerText">{"{:.3f}".format(state.ranked_player_list[index].GWP)}</td><td class="centerText">{"{:.3f}".format(state.ranked_player_list[index].AOGWP)}</td></tr>"""
         index += 1
     form_string += "</table><br><br><h3>Past Rounds</h3>"
 
