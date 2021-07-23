@@ -427,7 +427,7 @@ def get_pairing_controls(state: State) -> str:
         second_player_string = current_players[1]
         if not is_bye_player:     
             form_string += f"""Player {first_player_string} vs Player {second_player_string}<br>
-            <input type="radio" name="{first_player_string}_{second_player_string}" value="2_0">
+            <input type="radio" name="{first_player_string}_{second_player_string}" value="2_0" required>
             Player {first_player_string}: 2-0&nbsp
             <input type="radio" name="{first_player_string}_{second_player_string}" value="1_0">
             Player {first_player_string}: 1-0&nbsp
