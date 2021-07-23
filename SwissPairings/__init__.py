@@ -317,7 +317,7 @@ class Player:
     def calculate_points(self, state: State):
 
         if state.bye_player and (self.player_number + 1) == state.number_of_players:
-            self.OMW = 0.0
+            self.OMW = 0.0 # this is the phantom player, they get no OMW
             return
 
         round_num = 0
@@ -405,6 +405,7 @@ def get_final_results(state: State) -> str:
     <html>
     <body>"""
     form_string += get_rankings_and_links(state)
+    form_string += f"""<br><a href="{base_url}/SwissPairings/">New game</a>"""
     form_string += "</body></html>"
     return form_string   
 
