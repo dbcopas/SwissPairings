@@ -405,11 +405,11 @@ def get_final_results(state: State) -> str:
         <br>"""
 
     pnum = len(state.ordered_pairing_list)
-    start = 0
-    while (start + 1) <= pnum:
-        form_string += f"""Place {start + 1}: Player {state.ordered_pairing_list[start]+1}<br>    
+    index = 0
+    while (index + 1) <= pnum:
+        form_string += f"""Place {index + 1}: Player {state.ordered_pairing_list[index]+1}<br>    
         <br><br>"""
-        start += 1
+        index += 1
     form_string += """<br><br>
         </body>
         </html>"""
@@ -424,31 +424,38 @@ def get_pairing_controls(state: State) -> str:
         <br>"""
 
     pnum = len(state.ordered_pairing_list)
-    start = 0
-    while (start + 1) <= pnum:
-        is_bye_player = state.bye_player and (state.ordered_pairing_list[start] == pnum - 1 or state.ordered_pairing_list[start+1] == pnum - 1)
-        first_player_string = "BYE" if state.ordered_pairing_list[start] == pnum - 1 else  state.ordered_pairing_list[start]+1
-        second_player_string = "BYE" if state.ordered_pairing_list[start+1] == pnum - 1 else  state.ordered_pairing_list[start+1]+1
-        bye_string = "readonly" if is_bye_player else ""
-        options_string_checked = """ value="Y" checked """ if is_bye_player
-        options_string_disabled = """ value="N" diabled """
-        form_string += f"""Player {first_player_string} vs Player {second_player_string}<br>
-        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="2_0">
-        Player {first_player_string}: 2-0&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="1_0">
-        Player {first_player_string}: 1-0&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="2_1">
-        Player {first_player_string}: 2-1&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="1_2">
-        Player {first_player_string}: 1-2&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="0_1">
-        Player {first_player_string}: 0-1&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="0_2">
-        Player {first_player_string}: 0-2&nbsp
-        <input type="radio" name="{state.ordered_pairing_list[start]+1}_{state.ordered_pairing_list[start+1]+1}" value="1_1">
-        Player {first_player_string}: 1-1&nbsp
-        <br><br>"""
-        start += 2
+    index = 0
+    while (index + 1) <= pnum:
+        is_bye_player = state.bye_player and (state.ordered_pairing_list[index] == pnum - 1 or state.ordered_pairing_list[index+1] == pnum - 1)
+        current_players = [state.ordered_pairing_list[index]+1, state.ordered_pairing_list[index+1]+1]
+        current_players.sort()
+        first_player_string = current_players[0]
+        second_player_string = current_players[1]
+        if not is_bye_player:     
+            form_string += f"""Player {first_player_string} vs Player {second_player_string}<br>
+            <input type="radio" name="{first_player_string}_{second_player_string}" value="2_0">
+            Player {first_player_string}: 2-0&nbsp
+            <input type="radio" name="{first_player_string}_{second_player_string}" value="1_0">
+            Player {first_player_string}: 1-0&nbsp
+            <input type="radio" name="{first_player_string}_{second_player_string}" value="2_1">
+            Player {first_player_string}: 2-1&nbsp
+            <input type="radio" name="{first_player_string}_{second_player_string}" value="1_2">
+            Player {first_player_string}: 1-2&nbsp
+            <input type="radio" name="{first_player_string}_{second_player_string}" value="0_1">
+            Player {first_player_string}: 0-1&nbsp
+            <input type="radio" name="{first_player_string}_{second_player_string}" value="0_2">
+            Player {first_player_string}: 0-2&nbsp
+            <input type="radio" name="{first_player_string}_{second_player_string}" value="1_1">
+            Player {first_player_string}: 1-1&nbsp
+            <br><br>"""
+        else:
+            first_player_gets_bye = True if state.ordered_pairing_list[index+1] == pnum - 1 else False
+            bye_player = state.ordered_pairing_list[index]+1 if first_player_gets_bye else state.ordered_pairing_list[index+1]+1
+            bye_value = "2_0" if first_player_gets_bye else "0_2"
+
+            form_string += f"""Player {bye_player} BYE<input type="hidden" name="{state.ordered_pairing_list[index]+1}_{state.ordered_pairing_list[index+1]+1}" value="{bye_value}"><br><br>"""
+
+        index += 2
     form_string += """<br><br>
         <button type="submit">Submit</button>
         </form>
