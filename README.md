@@ -24,7 +24,7 @@ clear winner the minimum is log base 2 of the number of players)
 
 Todo
 ----
-Error handling and form validation!
+Add support for dropping players
 
 Someday one of my kids will write a nice user interface as a learning exercise ;)
 
