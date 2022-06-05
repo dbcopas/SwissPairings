@@ -4,8 +4,8 @@ import bitarray
 from enum import Enum
 import azure.functions as func
 
-base_url = "http://localhost:7071"
-#base_url = "https://swisspairings.azurewebsites.net"
+#base_url = "http://localhost:7071"
+base_url = "https://swisspairings.azurewebsites.net"
 
 PLAYER_NUMBER_BITS = 7 # because 129 players is 1 player too many :')
 ROUND_NUMBER_BITS = 4 # because 17 rounds would be inhumane. 16 is totally cool though
@@ -79,13 +79,6 @@ symbols = {
             }
 
 class State:
-    number_of_players = 0
-    played_rounds = 0
-    number_of_rounds = 0
-    state_string = ""
-    ordered_pairing_list = []
-    players = []
-    bye_player = False
 
     def __init__(self, state_string: str, http_method: str):
 
@@ -295,23 +288,11 @@ class State:
         self.state_string = ''.join(state) + "_" + old_state_string
     
 class Round:
-    opp_number = -1
-    games_won = -1
     def __init__(self, opp_number: int, games_won: int):
         self.opp_number = opp_number
         self.games_won = games_won
 
 class Player:
-    player_number = -1
-    rounds = []
-    points = 0
-    AOMWP = 0
-    GWP = 0
-    AOGWP = 0
-    total_games_played = 0
-    total_games_won = 0
-    player_score = 0
-
     def __init__(self, pnum:int):
         self.points = 0
         self.rounds = []
