@@ -3,7 +3,7 @@
   "azureFunctions.scmDoBuildDuringDeployment": true,
   "azureFunctions.pythonVenv": ".venv",
   "azureFunctions.projectLanguage": "Python",
-  "azureFunctions.projectRuntime": "~2",
+  "azureFunctions.projectRuntime": "~4",
   "debug.internalConsoleOptions": "neverOpen",
-  "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe"
+  "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe",
 }
