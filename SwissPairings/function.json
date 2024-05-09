@@ -6,11 +6,8 @@
       "type": "httpTrigger",
       "direction": "in",
       "name": "req",
-      "methods": [
-        "get",
-        "post"
-      ],
-      "route": "SwissPairings/{state?}"
+      "methods": ["get", "post"],
+      "route": "{state?}"
     },
     {
       "type": "http",
@@ -19,3 +16,4 @@
     }
   ]
 }
+

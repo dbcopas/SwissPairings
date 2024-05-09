@@ -10,6 +10,9 @@ base_url = "https://swisspairings.azurewebsites.net"
 PLAYER_NUMBER_BITS = 7 # because 129 players is 1 player too many :')
 ROUND_NUMBER_BITS = 4 # because 17 rounds would be inhumane. 16 is totally cool though
 
+HEAD = """<head><script src=https://code.jquery.com/jquery-3.6.0.min.js></script><link rel="stylesheet" 
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0/dist/css/bootstrap.min.css" 
+    integrity="sha384-gH2yIJqKdNHPEq0n4Mqa/HGKIhSkIHeL5AyhkYV8i59U5AR6csBvApHHNl/vI1Bx" crossorigin="anonymous"></head>"""
 
 symbols = {
                 '0' : bitarray.bitarray('000000'),
@@ -390,13 +393,13 @@ class Player:
         return has_played
 
 def get_new_game_form() -> str:
-    new_game_form = f"""<!DOCTYPE html>
+    new_game_form = f"""<!DOCTYPE html>{HEAD}
     <html>
     <body>
     <h1>Welcome to SwissPairings</h1>
     <h3>by Douglas Copas</h3>
     <h2>New Game</h2>
-    <form action="{base_url}/SwissPairings" method="POST">
+    <form action="{base_url}" method="POST">
         Number of Players (Max 128)<br>
         <input type="text" name="pnum" value="8" required>
         <br><br>
@@ -417,22 +420,22 @@ def get_new_game_form() -> str:
     return new_game_form
 
 def get_final_results(state: State) -> str:
-    form_string = f"""<!DOCTYPE html>
+    form_string = f"""<!DOCTYPE html>{HEAD}
     <head><style type="text/css">.centerText{{text-align: center;}}</style></head>
     <html>
     <body>"""
     form_string += get_rankings_and_links(state)
-    form_string += f"""<br><a href="{base_url}/SwissPairings/">New game</a>"""
+    form_string += f"""<br><a href="{base_url}/">New game</a>"""
     form_string += "</body></html>"
     return form_string   
 
 def get_pairing_controls(state: State) -> str:
-    form_string = f"""<!DOCTYPE html>
+    form_string = f"""<!DOCTYPE html>{HEAD}
     <head><style type="text/css">.centerText{{text-align: center;}}</style></head>
     <html>
     <body>
     <h2>Round {state.played_rounds + 1} : {state.state_string}</h2>
-    <form action="{base_url}/SwissPairings/{state.state_string}" method="POST">
+    <form action="{base_url}/{state.state_string}" method="POST">
         <br>"""
 
     pnum = len(state.ordered_pairing_list)
@@ -474,7 +477,7 @@ def get_pairing_controls(state: State) -> str:
     if state.played_rounds > 0:
         form_string += get_rankings_and_links(state)
 
-    form_string += f"""<br><a href="{base_url}/SwissPairings/">New game</a>"""
+    form_string += f"""<br><a href="{base_url}/">New game</a>"""
 
         
 
@@ -505,7 +508,7 @@ def get_rankings_and_links(state: State) -> str:
         while part_index <= index:
             state_url = states[part_index] + "_" + state_url
             part_index += 1
-        form_string += f"""<a href="{base_url}/SwissPairings/{state_url[:-1]}">Revert to round {index + 1} result input</a><br><br>"""
+        form_string += f"""<a href="{base_url}/{state_url[:-1]}">Revert to round {index + 1} result input</a><br><br>"""
         index += 1
 
     return form_string
@@ -545,10 +548,13 @@ def decode_header(ba_string: str):
     return number_of_players, number_of_rounds, played_rounds, bye_player
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
-
     logging.info('Python HTTP trigger function processed a request.')
 
     state_string = req.route_params.get('state')
+
+    if state_string and state_string.lower() == "swisspairings":
+        headers = {"Location": f"{base_url}"}
+        return func.HttpResponse(status_code=302, headers=headers)
 
     if "GET" in req.method:
         if state_string is None:
@@ -566,17 +572,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     elif "POST" in req.method:
         if state_string is None:
             current_state = State(None, req.method)
-            current_state.build_first_state_string(req.form)
-            headers = {"Location":  f"{base_url}/SwissPairings/{current_state.state_string}"}
-            return func.HttpResponse(status_code=302, headers=headers)
+            current_state.build_first_state_string(req.form)            
 
         else:
             current_state = State(state_string, req.method)
             current_state.update_history(req.form)
             current_state.build_new_state_string()
-            headers = {"Location":  f"{base_url}/SwissPairings/{current_state.state_string}"}
-            return func.HttpResponse(status_code=302, headers=headers)
+        
+        headers = {"Location": f"{base_url}/{current_state.state_string}"}
+        return func.HttpResponse(status_code=302, headers=headers)
 
     else:
-        raise ValueError(f"Unexpected http method {req.method}")
+        raise ValueError(f"Unexpected HTTP method {req.method}")
 
