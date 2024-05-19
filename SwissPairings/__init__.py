@@ -6,10 +6,9 @@ from enum import Enum
 import azure.functions as func
 
 #TODO: Add a way to handle player drops
-#TODO: Only include the seed's 24 bits in the first round's part of the state string. it doesn't need to be in every round part's state string
 
-#base_url = "http://localhost:7071"
-base_url = "https://swisspairings.azurewebsites.net"
+base_url = "http://localhost:7071"
+#base_url = "https://swisspairings.azurewebsites.net"
 
 XPAIRINGS = True
 
@@ -105,11 +104,17 @@ class State:
         if state_string is not None:
 
             ba = bitarray.bitarray()
+            ba.encode(symbols, state_string.split("_")[-1])
+            ba_string = ba.to01()
+            self.random_seed = decode_header(ba_string, True) 
 
+            ba = bitarray.bitarray()
             ba.encode(symbols, state_string.split("_")[0])
             ba_string = ba.to01()
-            self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player, self.random_seed = decode_header(ba_string) 
+            self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player = decode_header(ba_string) 
             self.state_string = state_string
+
+            only_one_round = len(state_string.split("_")) == 1
 
             for i in range(self.number_of_players):
                 player = Player(i)
@@ -118,7 +123,7 @@ class State:
             if self.played_rounds > 0:
 
                 # read the history from the state in to the player objs, calc points and get rankings
-                self.populate_player_object_with_from_history_in_state(ba_string)
+                self.populate_player_object_with_from_history_in_state(ba_string, only_one_round)
 
                 if "POST" in http_method:
                     return # we won't need to do the rest
@@ -214,9 +219,9 @@ class State:
 
 
     # read the history from the state in to the player objs, calc points and get rankings
-    def populate_player_object_with_from_history_in_state(self, ba_string: str):
+    def populate_player_object_with_from_history_in_state(self, ba_string: str, include_random_seed_width):
         width = get_player_width(self.number_of_players)
-        start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1 + 24
+        start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1 + (24 if include_random_seed_width else 0)
         end_index = start_index + width
         for _ in range(self.played_rounds):
             for player in self.players:
@@ -284,7 +289,7 @@ class State:
             number_of_players += 1
             self.bye_player = True
 
-        header = get_header(number_of_players, number_of_rounds, 0, self.bye_player, None)  
+        header = get_header(number_of_players, number_of_rounds, 0, self.bye_player, True)  
 
         player_numbers = []
         for i in range(number_of_players):
@@ -340,7 +345,7 @@ class State:
     def build_new_state_string(self):
         
         self.played_rounds = self.played_rounds + 1
-        header = get_header(self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player, self.random_seed)
+        header = get_header(self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player)
         width = get_player_width(self.number_of_players)
 
         for round_number in range(self.played_rounds):
@@ -581,17 +586,19 @@ def get_rankings_and_links(state: State) -> str:
 
     return form_string
 
-def get_header(number_of_players: int, number_of_rounds: int, rounds_played: int, bye_player: bool, random_seed=None) -> list:
+def get_header(number_of_players: int, number_of_rounds: int, rounds_played: int, bye_player: bool, include_random_seed: bool = False) -> list:
     number_of_players -= 1  # 0 index the number of players
     number_of_players_header = [int(x) for x in '{:0{size}b}'.format(number_of_players, size=PLAYER_NUMBER_BITS)]
     number_of_rounds_header = [int(x) for x in '{:0{size}b}'.format(number_of_rounds, size=ROUND_NUMBER_BITS)]
     rounds_played_header = [int(x) for x in '{:0{size}b}'.format(rounds_played, size=ROUND_NUMBER_BITS)]
     bye_bit = [1] if bye_player else [0]
-    if random_seed is None:
-        random_seed = random.randint(0, 16777215)
-    random_seed_bits = [int(x) for x in '{:0{size}b}'.format(random_seed, size=24)]
 
-    bit_list = number_of_players_header + number_of_rounds_header + rounds_played_header + bye_bit + random_seed_bits
+    bit_list = number_of_players_header + number_of_rounds_header + rounds_played_header + bye_bit
+
+    if include_random_seed:
+        random_seed = random.randint(0, 16777215)
+        random_seed_bits = [int(x) for x in '{:0{size}b}'.format(random_seed, size=24)]
+        bit_list = bit_list + random_seed_bits
 
     return bit_list
 
@@ -609,15 +616,17 @@ def get_player_width(pnum: int) -> int:
         width += 1
     return width
 
-def decode_header(ba_string: str):
+def decode_header(ba_string: str, include_seed: bool = False):
     
-    number_of_players = int(ba_string[:PLAYER_NUMBER_BITS], 2) + 1 # 0 indexed
-    number_of_rounds = int(ba_string[PLAYER_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS] ,2)
-    played_rounds = int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS] ,2)
-    bye_player = True if bool(int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1])) else False
-    # create a new variable called random_seed and set it to the next 24 bits
-    random_seed = int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1+24], 2)
-    return number_of_players, number_of_rounds, played_rounds, bye_player, random_seed
+    if not include_seed:
+        number_of_players = int(ba_string[:PLAYER_NUMBER_BITS], 2) + 1 # 0 indexed
+        number_of_rounds = int(ba_string[PLAYER_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS] ,2)
+        played_rounds = int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS] ,2)
+        bye_player = True if bool(int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1])) else False
+        return number_of_players, number_of_rounds, played_rounds, bye_player
+    else:
+        random_seed = int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1+24], 2)
+        return random_seed
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
