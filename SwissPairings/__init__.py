@@ -4,8 +4,10 @@ import bitarray
 from enum import Enum
 import azure.functions as func
 
-#base_url = "http://localhost:7071"
-base_url = "https://swisspairings.azurewebsites.net"
+base_url = "http://localhost:7071"
+#base_url = "https://swisspairings.azurewebsites.net"
+
+XPAIRINGS = True
 
 PLAYER_NUMBER_BITS = 7 # because 129 players is 1 player too many :')
 ROUND_NUMBER_BITS = 4 # because 17 rounds would be inhumane. 16 is totally cool though
@@ -142,7 +144,8 @@ class State:
     # this is the only hard part of the app -> 
     # see https://www.channelfireball.com/all-strategy/articles/understanding-standings-part-i-tournament-structure-the-basics/
     def create_pairings_from_ranklist(self, ranked_player_list: list):
-        self.ordered_pairing_list = []                    
+        self.ordered_pairing_list = []
+
         next_target = 1
         for player in ranked_player_list:
             player_matched = False
@@ -244,8 +247,24 @@ class State:
 
         player_numbers = []
         for i in range(number_of_players):
-            player_numbers.append(i)    
-        random.shuffle(player_numbers)
+            player_numbers.append(i)
+
+        # if cross pairings are enabled, we need to pair each player with the player furthest from them in the list. If we have an off number of players, the last player gets a bye
+        if XPAIRINGS:
+            player_numbers.sort()
+
+            if self.bye_player:
+                player_numbers.pop()
+            d = int(number_of_players/2)
+            for i in range(d):
+                player_numbers.append(player_numbers[i+d])
+            if self.bye_player:
+                player_numbers.append(number_of_players)
+            player_numbers = player_numbers[d:]
+
+        # if cross pairings are not enabled, we just shuffle the list of player numbers
+        else:
+            random.shuffle(player_numbers)
         width = get_player_width(number_of_players)
 
         for player_number in player_numbers:
@@ -551,6 +570,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
 
     state_string = req.route_params.get('state')
+    if state_string == "favicon.ico":
+                state_string = None
 
     if state_string and state_string.lower() == "swisspairings":
         headers = {"Location": f"{base_url}"}
@@ -559,9 +580,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     if "GET" in req.method:
         if state_string is None:
             return func.HttpResponse(body=get_new_game_form(), mimetype="text/html")
-        else:
+        else:            
             current_state = State(state_string, req.method)
-
             if current_state.played_rounds < current_state.number_of_rounds:
                 pairing_form = get_pairing_controls(current_state)
             else:
