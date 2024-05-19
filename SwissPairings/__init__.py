@@ -1,6 +1,7 @@
 import logging
 import random
 import bitarray
+from itertools import groupby
 from enum import Enum
 import azure.functions as func
 
@@ -229,9 +230,44 @@ class State:
     def get_player_rankings(self) -> list:
         for player in self.players:
             assert isinstance(player, Player)
-            player.player_score = player.points * 1000000000 + player.AOMWP * 1000000000 + player.GWP * 1000000 + player.AOGWP * 1000
+            if self.played_rounds < self.number_of_rounds:
+                # Only consider points before the last round
+                player.player_score = player.points * 1000000000
+            else:
+                # Include tie-breakers in the final round
+                player.player_score = player.points * 1000000000 + player.AOMWP * 1000000000 + player.GWP * 1000000 + player.AOGWP * 1000
 
-        return sorted(self.players, key = lambda x: x.player_score, reverse=True)
+        # Separate out the bye phantom player if present
+        phantom_player = None
+        if self.bye_player:
+            phantom_player = self.players[-1]
+            self.players = self.players[:-1]
+
+        sorted_players = sorted(self.players, key=lambda x: x.player_score, reverse=True)
+
+        if self.played_rounds > 0:
+            # Find groups of players with the same score
+
+            grouped_players = []
+            for key, group in groupby(sorted_players, key=lambda x: x.player_score):
+                grouped_players.append(list(group))
+
+            # Shuffle the players within each group
+            for group in grouped_players:
+                if len(group) > 1:
+                    random.shuffle(group)
+
+            # Flatten the list
+            randomized_ranked_list = [player for group in grouped_players for player in group]
+        else:
+            randomized_ranked_list = sorted_players
+
+        # Append the phantom player at the end if present
+        if phantom_player:
+            randomized_ranked_list.append(phantom_player)
+
+        return randomized_ranked_list
+
 
     # create the random pairings (called from the post of game setup)
     def build_first_state_string(self, form: dict):
@@ -252,15 +288,21 @@ class State:
         # if cross pairings are enabled, we need to pair each player with the player furthest from them in the list. If we have an off number of players, the last player gets a bye
         if XPAIRINGS:
             player_numbers.sort()
-
+            effective_number_of_players = number_of_players
             if self.bye_player:
                 player_numbers.pop()
-            d = int(number_of_players/2)
+                effective_number_of_players -= 1
+            d = int(effective_number_of_players/2)
             for i in range(d):
+                player_numbers.append(player_numbers[i])
                 player_numbers.append(player_numbers[i+d])
             if self.bye_player:
-                player_numbers.append(number_of_players)
-            player_numbers = player_numbers[d:]
+                player_numbers = player_numbers[effective_number_of_players:]
+                player_numbers.append(number_of_players-2)
+                player_numbers.append(number_of_players-1)
+            else:
+                player_numbers = player_numbers[effective_number_of_players:]
+            
 
         # if cross pairings are not enabled, we just shuffle the list of player numbers
         else:
@@ -330,9 +372,9 @@ class Player:
     def calculate_points(self, state: State):
 
         if state.bye_player and (self.player_number + 1) == state.number_of_players:
-            self.AOMWP = 1.0 # this is the phantom player, they get no AOMWP
+            self.AOMWP = 0.0 # this is the phantom player, they get no AOMWP
             self.GWP = 0.0
-            self.AOGWP = 1.0
+            self.AOGWP = 0.0
             return
 
         round_num = 0
@@ -508,6 +550,8 @@ def get_rankings_and_links(state: State) -> str:
     form_string = """<h3>Rankings</h3><table style="width:25%"><tr><th>Rank</th><th>Player</th><th>Points</th><th>AOMWP</th><th>GWP</th><th>AOGWP</th></tr>"""
     index = 0
     pnum = len(state.ordered_pairing_list)
+    if state.bye_player:
+        pnum -= 1
     while (index) < pnum:
         form_string += f"""<tr><td class="centerText">{index + 1}</td><td class="centerText">{state.ranked_player_list[index].player_number + 1}</td>
         <td class="centerText">{state.ranked_player_list[index].points}</td><td class="centerText">{"{:.3f}".format(state.ranked_player_list[index].AOMWP)}</td>
