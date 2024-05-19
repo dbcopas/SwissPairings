@@ -5,8 +5,11 @@ from itertools import groupby
 from enum import Enum
 import azure.functions as func
 
-base_url = "http://localhost:7071"
-#base_url = "https://swisspairings.azurewebsites.net"
+#TODO: Add a way to handle player drops
+#TODO: Only include the seed's 24 bits in the first round's part of the state string. it doesn't need to be in every round part's state string
+
+#base_url = "http://localhost:7071"
+base_url = "https://swisspairings.azurewebsites.net"
 
 XPAIRINGS = True
 
@@ -96,6 +99,7 @@ class State:
         self.players = []
         self.bye_player = False
         self.ranked_player_list = []
+        self.random_seed = None
 
         # consume the state if it is there to be consumed
         if state_string is not None:
@@ -104,7 +108,7 @@ class State:
 
             ba.encode(symbols, state_string.split("_")[0])
             ba_string = ba.to01()
-            self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player = decode_header(ba_string) 
+            self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player, self.random_seed = decode_header(ba_string) 
             self.state_string = state_string
 
             for i in range(self.number_of_players):
@@ -134,7 +138,7 @@ class State:
             # if this is the first round, read the state (made in the post) into the pairing list for the view to consume
             if self.played_rounds == 0 and "GET" in http_method: 
                 width = get_player_width(self.number_of_players)
-                start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1
+                start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1 + 24
                 end_index = start_index + width
                 for i in range(self.number_of_players):
                     player_string = ba_string[start_index:end_index]
@@ -212,7 +216,7 @@ class State:
     # read the history from the state in to the player objs, calc points and get rankings
     def populate_player_object_with_from_history_in_state(self, ba_string: str):
         width = get_player_width(self.number_of_players)
-        start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1
+        start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1 + 24
         end_index = start_index + width
         for _ in range(self.played_rounds):
             for player in self.players:
@@ -253,6 +257,7 @@ class State:
                 grouped_players.append(list(group))
 
             # Shuffle the players within each group
+            random.seed(self.random_seed)
             for group in grouped_players:
                 if len(group) > 1:
                     random.shuffle(group)
@@ -279,7 +284,7 @@ class State:
             number_of_players += 1
             self.bye_player = True
 
-        header = get_header(number_of_players, number_of_rounds, 0, self.bye_player)  
+        header = get_header(number_of_players, number_of_rounds, 0, self.bye_player, None)  
 
         player_numbers = []
         for i in range(number_of_players):
@@ -335,7 +340,7 @@ class State:
     def build_new_state_string(self):
         
         self.played_rounds = self.played_rounds + 1
-        header = get_header(self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player)
+        header = get_header(self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player, self.random_seed)
         width = get_player_width(self.number_of_players)
 
         for round_number in range(self.played_rounds):
@@ -576,15 +581,17 @@ def get_rankings_and_links(state: State) -> str:
 
     return form_string
 
-def get_header(number_of_players: int, number_of_rounds: int, rounds_played: int, bye_player: bool) -> list:
-
-    number_of_players -= 1 # 0 index the number of players
-
-    number_of_players_header = [int(x) for x in '{:0{size}b}'.format(number_of_players,size=PLAYER_NUMBER_BITS)]
-    number_of_rounds_header = [int(x) for x in '{:0{size}b}'.format(number_of_rounds,size=ROUND_NUMBER_BITS)]
-    rounds_played_header = [int(x) for x in '{:0{size}b}'.format(rounds_played,size=ROUND_NUMBER_BITS)]
+def get_header(number_of_players: int, number_of_rounds: int, rounds_played: int, bye_player: bool, random_seed=None) -> list:
+    number_of_players -= 1  # 0 index the number of players
+    number_of_players_header = [int(x) for x in '{:0{size}b}'.format(number_of_players, size=PLAYER_NUMBER_BITS)]
+    number_of_rounds_header = [int(x) for x in '{:0{size}b}'.format(number_of_rounds, size=ROUND_NUMBER_BITS)]
+    rounds_played_header = [int(x) for x in '{:0{size}b}'.format(rounds_played, size=ROUND_NUMBER_BITS)]
     bye_bit = [1] if bye_player else [0]
-    bit_list = number_of_players_header + number_of_rounds_header + rounds_played_header + bye_bit
+    if random_seed is None:
+        random_seed = random.randint(0, 16777215)
+    random_seed_bits = [int(x) for x in '{:0{size}b}'.format(random_seed, size=24)]
+
+    bit_list = number_of_players_header + number_of_rounds_header + rounds_played_header + bye_bit + random_seed_bits
 
     return bit_list
 
@@ -608,7 +615,9 @@ def decode_header(ba_string: str):
     number_of_rounds = int(ba_string[PLAYER_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS] ,2)
     played_rounds = int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS] ,2)
     bye_player = True if bool(int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1])) else False
-    return number_of_players, number_of_rounds, played_rounds, bye_player
+    # create a new variable called random_seed and set it to the next 24 bits
+    random_seed = int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1+24], 2)
+    return number_of_players, number_of_rounds, played_rounds, bye_player, random_seed
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
