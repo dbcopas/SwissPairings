@@ -1,11 +1,17 @@
 import logging
 import random
 import bitarray
+from itertools import groupby
 from enum import Enum
 import azure.functions as func
 
+#TODO: Add a way to handle player drops
+#TODO: Only include the seed's 24 bits in the first round's part of the state string. it doesn't need to be in every round part's state string
+
 #base_url = "http://localhost:7071"
 base_url = "https://swisspairings.azurewebsites.net"
+
+XPAIRINGS = True
 
 PLAYER_NUMBER_BITS = 7 # because 129 players is 1 player too many :')
 ROUND_NUMBER_BITS = 4 # because 17 rounds would be inhumane. 16 is totally cool though
@@ -93,6 +99,7 @@ class State:
         self.players = []
         self.bye_player = False
         self.ranked_player_list = []
+        self.random_seed = None
 
         # consume the state if it is there to be consumed
         if state_string is not None:
@@ -101,7 +108,7 @@ class State:
 
             ba.encode(symbols, state_string.split("_")[0])
             ba_string = ba.to01()
-            self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player = decode_header(ba_string) 
+            self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player, self.random_seed = decode_header(ba_string) 
             self.state_string = state_string
 
             for i in range(self.number_of_players):
@@ -131,7 +138,7 @@ class State:
             # if this is the first round, read the state (made in the post) into the pairing list for the view to consume
             if self.played_rounds == 0 and "GET" in http_method: 
                 width = get_player_width(self.number_of_players)
-                start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1
+                start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1 + 24
                 end_index = start_index + width
                 for i in range(self.number_of_players):
                     player_string = ba_string[start_index:end_index]
@@ -142,7 +149,8 @@ class State:
     # this is the only hard part of the app -> 
     # see https://www.channelfireball.com/all-strategy/articles/understanding-standings-part-i-tournament-structure-the-basics/
     def create_pairings_from_ranklist(self, ranked_player_list: list):
-        self.ordered_pairing_list = []                    
+        self.ordered_pairing_list = []
+
         next_target = 1
         for player in ranked_player_list:
             player_matched = False
@@ -208,7 +216,7 @@ class State:
     # read the history from the state in to the player objs, calc points and get rankings
     def populate_player_object_with_from_history_in_state(self, ba_string: str):
         width = get_player_width(self.number_of_players)
-        start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1
+        start_index = PLAYER_NUMBER_BITS + ROUND_NUMBER_BITS + ROUND_NUMBER_BITS + 1 + 24
         end_index = start_index + width
         for _ in range(self.played_rounds):
             for player in self.players:
@@ -226,9 +234,45 @@ class State:
     def get_player_rankings(self) -> list:
         for player in self.players:
             assert isinstance(player, Player)
-            player.player_score = player.points * 1000000000 + player.AOMWP * 1000000000 + player.GWP * 1000000 + player.AOGWP * 1000
+            if self.played_rounds < self.number_of_rounds:
+                # Only consider points before the last round
+                player.player_score = player.points * 1000000000
+            else:
+                # Include tie-breakers in the final round
+                player.player_score = player.points * 1000000000 + player.AOMWP * 1000000000 + player.GWP * 1000000 + player.AOGWP * 1000
 
-        return sorted(self.players, key = lambda x: x.player_score, reverse=True)
+        # Separate out the bye phantom player if present
+        phantom_player = None
+        if self.bye_player:
+            phantom_player = self.players[-1]
+            self.players = self.players[:-1]
+
+        sorted_players = sorted(self.players, key=lambda x: x.player_score, reverse=True)
+
+        if self.played_rounds > 0:
+            # Find groups of players with the same score
+
+            grouped_players = []
+            for key, group in groupby(sorted_players, key=lambda x: x.player_score):
+                grouped_players.append(list(group))
+
+            # Shuffle the players within each group
+            random.seed(self.random_seed)
+            for group in grouped_players:
+                if len(group) > 1:
+                    random.shuffle(group)
+
+            # Flatten the list
+            randomized_ranked_list = [player for group in grouped_players for player in group]
+        else:
+            randomized_ranked_list = sorted_players
+
+        # Append the phantom player at the end if present
+        if phantom_player:
+            randomized_ranked_list.append(phantom_player)
+
+        return randomized_ranked_list
+
 
     # create the random pairings (called from the post of game setup)
     def build_first_state_string(self, form: dict):
@@ -240,12 +284,34 @@ class State:
             number_of_players += 1
             self.bye_player = True
 
-        header = get_header(number_of_players, number_of_rounds, 0, self.bye_player)  
+        header = get_header(number_of_players, number_of_rounds, 0, self.bye_player, None)  
 
         player_numbers = []
         for i in range(number_of_players):
-            player_numbers.append(i)    
-        random.shuffle(player_numbers)
+            player_numbers.append(i)
+
+        # if cross pairings are enabled, we need to pair each player with the player furthest from them in the list. If we have an off number of players, the last player gets a bye
+        if XPAIRINGS:
+            player_numbers.sort()
+            effective_number_of_players = number_of_players
+            if self.bye_player:
+                player_numbers.pop()
+                effective_number_of_players -= 1
+            d = int(effective_number_of_players/2)
+            for i in range(d):
+                player_numbers.append(player_numbers[i])
+                player_numbers.append(player_numbers[i+d])
+            if self.bye_player:
+                player_numbers = player_numbers[effective_number_of_players:]
+                player_numbers.append(number_of_players-2)
+                player_numbers.append(number_of_players-1)
+            else:
+                player_numbers = player_numbers[effective_number_of_players:]
+            
+
+        # if cross pairings are not enabled, we just shuffle the list of player numbers
+        else:
+            random.shuffle(player_numbers)
         width = get_player_width(number_of_players)
 
         for player_number in player_numbers:
@@ -274,7 +340,7 @@ class State:
     def build_new_state_string(self):
         
         self.played_rounds = self.played_rounds + 1
-        header = get_header(self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player)
+        header = get_header(self.number_of_players, self.number_of_rounds, self.played_rounds, self.bye_player, self.random_seed)
         width = get_player_width(self.number_of_players)
 
         for round_number in range(self.played_rounds):
@@ -311,9 +377,9 @@ class Player:
     def calculate_points(self, state: State):
 
         if state.bye_player and (self.player_number + 1) == state.number_of_players:
-            self.AOMWP = 1.0 # this is the phantom player, they get no AOMWP
+            self.AOMWP = 0.0 # this is the phantom player, they get no AOMWP
             self.GWP = 0.0
-            self.AOGWP = 1.0
+            self.AOGWP = 0.0
             return
 
         round_num = 0
@@ -489,6 +555,8 @@ def get_rankings_and_links(state: State) -> str:
     form_string = """<h3>Rankings</h3><table style="width:25%"><tr><th>Rank</th><th>Player</th><th>Points</th><th>AOMWP</th><th>GWP</th><th>AOGWP</th></tr>"""
     index = 0
     pnum = len(state.ordered_pairing_list)
+    if state.bye_player:
+        pnum -= 1
     while (index) < pnum:
         form_string += f"""<tr><td class="centerText">{index + 1}</td><td class="centerText">{state.ranked_player_list[index].player_number + 1}</td>
         <td class="centerText">{state.ranked_player_list[index].points}</td><td class="centerText">{"{:.3f}".format(state.ranked_player_list[index].AOMWP)}</td>
@@ -513,15 +581,17 @@ def get_rankings_and_links(state: State) -> str:
 
     return form_string
 
-def get_header(number_of_players: int, number_of_rounds: int, rounds_played: int, bye_player: bool) -> list:
-
-    number_of_players -= 1 # 0 index the number of players
-
-    number_of_players_header = [int(x) for x in '{:0{size}b}'.format(number_of_players,size=PLAYER_NUMBER_BITS)]
-    number_of_rounds_header = [int(x) for x in '{:0{size}b}'.format(number_of_rounds,size=ROUND_NUMBER_BITS)]
-    rounds_played_header = [int(x) for x in '{:0{size}b}'.format(rounds_played,size=ROUND_NUMBER_BITS)]
+def get_header(number_of_players: int, number_of_rounds: int, rounds_played: int, bye_player: bool, random_seed=None) -> list:
+    number_of_players -= 1  # 0 index the number of players
+    number_of_players_header = [int(x) for x in '{:0{size}b}'.format(number_of_players, size=PLAYER_NUMBER_BITS)]
+    number_of_rounds_header = [int(x) for x in '{:0{size}b}'.format(number_of_rounds, size=ROUND_NUMBER_BITS)]
+    rounds_played_header = [int(x) for x in '{:0{size}b}'.format(rounds_played, size=ROUND_NUMBER_BITS)]
     bye_bit = [1] if bye_player else [0]
-    bit_list = number_of_players_header + number_of_rounds_header + rounds_played_header + bye_bit
+    if random_seed is None:
+        random_seed = random.randint(0, 16777215)
+    random_seed_bits = [int(x) for x in '{:0{size}b}'.format(random_seed, size=24)]
+
+    bit_list = number_of_players_header + number_of_rounds_header + rounds_played_header + bye_bit + random_seed_bits
 
     return bit_list
 
@@ -545,12 +615,16 @@ def decode_header(ba_string: str):
     number_of_rounds = int(ba_string[PLAYER_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS] ,2)
     played_rounds = int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS] ,2)
     bye_player = True if bool(int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1])) else False
-    return number_of_players, number_of_rounds, played_rounds, bye_player
+    # create a new variable called random_seed and set it to the next 24 bits
+    random_seed = int(ba_string[PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1:PLAYER_NUMBER_BITS+ROUND_NUMBER_BITS+ROUND_NUMBER_BITS+1+24], 2)
+    return number_of_players, number_of_rounds, played_rounds, bye_player, random_seed
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
 
     state_string = req.route_params.get('state')
+    if state_string == "favicon.ico":
+                state_string = None
 
     if state_string and state_string.lower() == "swisspairings":
         headers = {"Location": f"{base_url}"}
@@ -559,9 +633,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     if "GET" in req.method:
         if state_string is None:
             return func.HttpResponse(body=get_new_game_form(), mimetype="text/html")
-        else:
+        else:            
             current_state = State(state_string, req.method)
-
             if current_state.played_rounds < current_state.number_of_rounds:
                 pairing_form = get_pairing_controls(current_state)
             else:
